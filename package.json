@@ -2,7 +2,7 @@
     "name": "code-obfuscator",
     "displayName": "Code Obfuscator",
     "description": "Obfuscate and deobfuscate code in a folder.",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "publisher": "yourPublisherName",
     "engines": {
       "vscode": "^1.60.0"
@@ -11,16 +11,16 @@
       "Other"
     ],
     "activationEvents": [
-      "onCommand:extension.openObfuscatorUI"
+      "onCommand:extension.openEnigmaObfuscator"
     ],
     "main": "./out/extension.js",
     "contributes": {
-      "commands": [
+    "commands": [
         {
-          "command": "extension.openObfuscatorUI",
-          "title": "Open Code Obfuscator UI"
+            "command": "extension.openEnigmaObfuscator",
+            "title": "Open Enigma Obfuscator"
         }
-      ]
+    ]
     },
     "scripts": {
       "vscode:prepublish": "npm run compile",
