@@ -2,6 +2,223 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+/* --------------------------------------------------------------------------
+   Enigma Machine Classes for File Obfuscation (Extension Host)
+   These classes replicate the simulation logic but without any UI drawing.
+-------------------------------------------------------------------------- */
+class Keyboard {
+  forward(letter: string): number {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
+  }
+  backward(signal: number): string {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt(signal);
+  }
+}
+
+class Plugboard {
+  left: string[];
+  right: string[];
+  constructor(pairsStr: string) {
+    this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+    this.right = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+    let pairs = pairsStr.trim().split(" ");
+    for (let pair of pairs) {
+      if (pair.length >= 2) {
+        let A = pair[0].toUpperCase();
+        let B = pair[1].toUpperCase();
+        let idxA = this.left.indexOf(A);
+        let idxB = this.left.indexOf(B);
+        if (idxA !== -1 && idxB !== -1) {
+          [this.left[idxA], this.left[idxB]] = [this.left[idxB], this.left[idxA]];
+        }
+      }
+    }
+  }
+  forward(signal: number): number {
+    let letter = this.right[signal];
+    return this.left.indexOf(letter);
+  }
+  backward(signal: number): number {
+    let letter = this.left[signal];
+    return this.right.indexOf(letter);
+  }
+}
+
+class Rotor {
+  left: string[];
+  right: string[];
+  notch: string;
+  constructor(wiring: string, notch: string) {
+    this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+    this.right = wiring.split('');
+    this.notch = notch;
+  }
+  forward(signal: number): number {
+    let letter = this.right[signal];
+    return this.left.indexOf(letter);
+  }
+  backward(signal: number): number {
+    let letter = this.left[signal];
+    return this.right.indexOf(letter);
+  }
+  rotate(n: number = 1, forward: boolean = true) {
+    for (let i = 0; i < n; i++) {
+      if (forward) {
+        this.left.push(this.left.shift()!);
+        this.right.push(this.right.shift()!);
+      } else {
+        this.left.unshift(this.left.pop()!);
+        this.right.unshift(this.right.pop()!);
+      }
+    }
+  }
+  rotateToLetter(letter: string) {
+    let n = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
+    this.rotate(n);
+  }
+  setRing(n: number) {
+    // n is expected as a 1-indexed value (e.g. A -> 1)
+    this.rotate(n - 1, false);
+    let nNotch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(this.notch);
+    this.notch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt((nNotch - n + 1 + 26) % 26);
+  }
+}
+
+class Reflector {
+  left: string[];
+  right: string[];
+  constructor(wiring: string) {
+    this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+    this.right = wiring.split('');
+  }
+  reflect(signal: number): number {
+    let letter = this.right[signal];
+    return this.left.indexOf(letter);
+  }
+}
+
+class Enigma {
+  re: Reflector;
+  r1: Rotor;
+  r2: Rotor;
+  r3: Rotor;
+  pb: Plugboard;
+  kb: Keyboard;
+  constructor(reflector: Reflector, r1: Rotor, r2: Rotor, r3: Rotor, plugboard: Plugboard, keyboard: Keyboard) {
+    this.re = reflector;
+    this.r1 = r1;
+    this.r2 = r2;
+    this.r3 = r3;
+    this.pb = plugboard;
+    this.kb = keyboard;
+  }
+  setRings(rings: number[]) {
+    this.r1.setRing(rings[0]);
+    this.r2.setRing(rings[1]);
+    this.r3.setRing(rings[2]);
+  }
+  setKey(key: string) {
+    // key is expected to be a three-letter string (e.g. "MCK")
+    this.r1.rotateToLetter(key.charAt(0).toUpperCase());
+    this.r2.rotateToLetter(key.charAt(1).toUpperCase());
+    this.r3.rotateToLetter(key.charAt(2).toUpperCase());
+  }
+  encipher(letter: string): { path: number[], letter: string } {
+    // For each letter, rotor r3 steps automatically.
+    this.r3.rotate();
+    let signal = this.kb.forward(letter);
+    let path = [signal];
+    signal = this.pb.forward(signal); path.push(signal);
+    signal = this.r3.forward(signal); path.push(signal);
+    signal = this.r2.forward(signal); path.push(signal);
+    signal = this.r1.forward(signal); path.push(signal);
+    signal = this.re.reflect(signal); path.push(signal);
+    signal = this.r1.backward(signal); path.push(signal);
+    signal = this.r2.backward(signal); path.push(signal);
+    signal = this.r3.backward(signal); path.push(signal);
+    signal = this.pb.backward(signal); path.push(signal);
+    let outputLetter = this.kb.backward(signal);
+    return { path, letter: outputLetter };
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Updated File Processing Functions Using the Enigma Logic
+-------------------------------------------------------------------------- */
+async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
+  if (!vscode.workspace.workspaceFolders) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
+  // List of supported file types
+  const fileExtensions = ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.html', '.css'];
+  const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**');
+
+  for (const file of files) {
+    const filePath = file.fsPath;
+    if (fileExtensions.includes(path.extname(filePath))) {
+      try {
+        let content = fs.readFileSync(filePath, 'utf8');
+        // For Enigma, encryption and decryption are the same process if the initial state is reestablished.
+        let transformed = enigmaObfuscate(content, config, obfuscate);
+        fs.writeFileSync(filePath, transformed, 'utf8');
+      } catch (err) {
+        console.error(`Error processing file ${filePath}:`, err);
+      }
+    }
+  }
+}
+
+function enigmaObfuscate(text: string, config: any, obfuscate: boolean): string {
+  // Define wirings for the rotors and reflector (for demonstration)
+  const rotorWirings: { [key: string]: string } = {
+    "I": "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
+    "II": "AJDKSIRUXBLHWTMCQGZNPYFVOE",
+    "III": "BDFHJLCPRTXVZNYEIWGAKMUSQO",
+    "IV": "ESOVPZJAYQUIRHXLNFTGKDCMWB",
+    "V": "VZBRGITYUPSDNHLXAWMJQOFECK"
+  };
+  const reflectorWirings: { [key: string]: string } = {
+    "A": "EJMZALYXVBWFCRQUONTSPIKHGD",
+    "B": "YRUHQSLDPXNGOKMIEBFZCWVJAT",
+    "C": "FVPJIAOYEDRZXWGCTKUQSBNMHL"
+  };
+
+  // Instantiate rotors based on the configuration
+  const rotorNames = config.rotors.split("-");
+  const r1 = new Rotor(rotorWirings[rotorNames[0]], "Q");
+  const r2 = new Rotor(rotorWirings[rotorNames[1]], "E");
+  const r3 = new Rotor(rotorWirings[rotorNames[2]], "V");
+  const reflector = new Reflector(reflectorWirings[config.reflector]);
+  const plugboard = new Plugboard(config.plugboard);
+  const keyboard = new Keyboard();
+  const enigma = new Enigma(reflector, r1, r2, r3, plugboard, keyboard);
+
+  // Configure rings and rotor start positions
+  enigma.setRings(config.rings.split('').map((c:string) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
+  enigma.setKey(config.rotorStart);
+
+  let transformed = '';
+  // Process the text one character at a time
+  for (const char of text) {
+    if (/[A-Za-z]/.test(char)) {
+      const result = enigma.encipher(char.toUpperCase());
+      let newChar = result.letter;
+      // Preserve original case
+      if (char === char.toLowerCase()) {
+        newChar = newChar.toLowerCase();
+      }
+      transformed += newChar;
+    } else {
+      transformed += char;
+    }
+  }
+  return transformed;
+}
+
+/* --------------------------------------------------------------------------
+   VS Code Extension Activation / Webview Code
+-------------------------------------------------------------------------- */
 export function activate(context: vscode.ExtensionContext) {
   // Use extensionPath to build a URI for the extension folder.
   const extensionUri = vscode.Uri.file(context.extensionPath);
@@ -73,7 +290,7 @@ class EnigmaPanel {
   }
 
   private _getHtmlForWebview(): string {
-    // Inline HTML UI with localStorage for configuration persistence.
+    // Inline HTML UI remains mostly unchanged.
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -113,172 +330,7 @@ class EnigmaPanel {
   <script>
     const vscode = acquireVsCodeApi();
     
-    // -----------------------------
-    // Enigma Simulation Classes
-    // -----------------------------
-    class Keyboard {
-      forward(letter) {
-        return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
-      }
-      backward(signal) {
-        return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt(signal);
-      }
-      draw(ctx, x, y, w, h) {
-        ctx.strokeStyle = "white";
-        ctx.strokeRect(x, y, w, h);
-        ctx.fillStyle = "grey";
-        for (let i = 0; i < 26; i++) {
-          ctx.fillText("ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt(i), x + w/2, y + (i+1)*h/27);
-        }
-      }
-    }
-    
-    class Plugboard {
-      constructor(pairsStr) {
-        this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
-        this.right = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
-        let pairs = pairsStr.trim().split(" ");
-        for (let pair of pairs) {
-          if (pair.length >= 2) {
-            let A = pair[0].toUpperCase();
-            let B = pair[1].toUpperCase();
-            let idxA = this.left.indexOf(A);
-            let idxB = this.left.indexOf(B);
-            if (idxA !== -1 && idxB !== -1) {
-              [this.left[idxA], this.left[idxB]] = [this.left[idxB], this.left[idxA]];
-            }
-          }
-        }
-      }
-      forward(signal) {
-        let letter = this.right[signal];
-        return this.left.indexOf(letter);
-      }
-      backward(signal) {
-        let letter = this.left[signal];
-        return this.right.indexOf(letter);
-      }
-      draw(ctx, x, y, w, h) {
-        ctx.strokeStyle = "white";
-        ctx.strokeRect(x, y, w, h);
-        ctx.fillStyle = "grey";
-        for (let i = 0; i < 26; i++) {
-          ctx.fillText(this.left[i], x + w/4, y + (i+1)*h/27);
-          ctx.fillText(this.right[i], x + (3*w)/4, y + (i+1)*h/27);
-        }
-      }
-    }
-    
-    class Rotor {
-      constructor(wiring, notch) {
-        this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
-        this.right = wiring.split('');
-        this.notch = notch;
-      }
-      forward(signal) {
-        let letter = this.right[signal];
-        return this.left.indexOf(letter);
-      }
-      backward(signal) {
-        let letter = this.left[signal];
-        return this.right.indexOf(letter);
-      }
-      rotate(n=1, forward=true) {
-        for (let i = 0; i < n; i++) {
-          if (forward) {
-            this.left.push(this.left.shift());
-            this.right.push(this.right.shift());
-          } else {
-            this.left.unshift(this.left.pop());
-            this.right.unshift(this.right.pop());
-          }
-        }
-      }
-      rotateToLetter(letter) {
-        let n = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
-        this.rotate(n);
-      }
-      setRing(n) {
-        this.rotate(n - 1, false);
-        let nNotch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(this.notch);
-        this.notch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt((nNotch - n + 1 + 26) % 26);
-      }
-      draw(ctx, x, y, w, h) {
-        ctx.strokeStyle = "white";
-        ctx.strokeRect(x, y, w, h);
-        ctx.fillStyle = "grey";
-        for (let i = 0; i < 26; i++) {
-          ctx.fillText(this.left[i], x + w/4, y + (i+1)*h/27);
-          ctx.fillText(this.right[i], x + (3*w)/4, y + (i+1)*h/27);
-        }
-      }
-    }
-    
-    class Reflector {
-      constructor(wiring) {
-        this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
-        this.right = wiring.split('');
-      }
-      reflect(signal) {
-        let letter = this.right[signal];
-        return this.left.indexOf(letter);
-      }
-      draw(ctx, x, y, w, h) {
-        ctx.strokeStyle = "white";
-        ctx.strokeRect(x, y, w, h);
-        ctx.fillStyle = "grey";
-        for (let i = 0; i < 26; i++) {
-          ctx.fillText(this.left[i], x + w/4, y + (i+1)*h/27);
-          ctx.fillText(this.right[i], x + (3*w)/4, y + (i+1)*h/27);
-        }
-      }
-    }
-    
-    class Enigma {
-      constructor(reflector, r1, r2, r3, plugboard, keyboard) {
-        this.re = reflector;
-        this.r1 = r1;
-        this.r2 = r2;
-        this.r3 = r3;
-        this.pb = plugboard;
-        this.kb = keyboard;
-      }
-      setRings(rings) {
-        this.r1.setRing(rings[0]);
-        this.r2.setRing(rings[1]);
-        this.r3.setRing(rings[2]);
-      }
-      setKey(key) {
-        this.r1.rotateToLetter(key.charAt(0));
-        this.r2.rotateToLetter(key.charAt(1));
-        this.r3.rotateToLetter(key.charAt(2));
-      }
-      encipher(letter) {
-        // For demonstration, we perform a simple rotor stepping and signal path.
-        this.r3.rotate();
-        let signal = this.kb.forward(letter);
-        let path = [signal];
-        signal = this.pb.forward(signal); path.push(signal);
-        signal = this.r3.forward(signal); path.push(signal);
-        signal = this.r2.forward(signal); path.push(signal);
-        signal = this.r1.forward(signal); path.push(signal);
-        signal = this.re.reflect(signal); path.push(signal);
-        signal = this.r1.backward(signal); path.push(signal);
-        signal = this.r2.backward(signal); path.push(signal);
-        signal = this.r3.backward(signal); path.push(signal);
-        signal = this.pb.backward(signal); path.push(signal);
-        let outputLetter = this.kb.backward(signal);
-        return { path: path, letter: outputLetter };
-      }
-    }
-    
-    // Global Enigma instance and supporting objects.
-    let enigma;
-    const keyboard = new Keyboard();
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    
-    // Load persisted configuration from localStorage when the page loads.
+    // Persist configuration in localStorage on load.
     window.onload = function() {
       const storedConfig = JSON.parse(localStorage.getItem('enigmaConfig') || '{}');
       if (storedConfig.rotors) document.getElementById('rotors').value = storedConfig.rotors;
@@ -296,62 +348,12 @@ class EnigmaPanel {
         plugboard: document.getElementById("plugboard").value,
         reflector: document.getElementById("reflector").value
       };
-      // Save configuration locally so it persists if the webview reloads.
       localStorage.setItem('enigmaConfig', JSON.stringify(config));
-      
-      const rotorNames = config.rotors.split("-");
-      // Predefined wirings for demonstration
-      const rotorWirings = {
-        "I": "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
-        "II": "AJDKSIRUXBLHWTMCQGZNPYFVOE",
-        "III": "BDFHJLCPRTXVZNYEIWGAKMUSQO",
-        "IV": "ESOVPZJAYQUIRHXLNFTGKDCMWB",
-        "V": "VZBRGITYUPSDNHLXAWMJQOFECK"
-      };
-      const reflectorWirings = {
-        "A": "EJMZALYXVBWFCRQUONTSPIKHGD",
-        "B": "YRUHQSLDPXNGOKMIEBFZCWVJAT",
-        "C": "FVPJIAOYEDRZXWGCTKUQSBNMHL"
-      };
-      
-      const r1 = new Rotor(rotorWirings[rotorNames[0]], "Q");
-      const r2 = new Rotor(rotorWirings[rotorNames[1]], "E");
-      const r3 = new Rotor(rotorWirings[rotorNames[2]], "V");
-      const reflector = new Reflector(reflectorWirings[config.reflector]);
-      const plugboard = new Plugboard(config.plugboard);
-      enigma = new Enigma(reflector, r1, r2, r3, plugboard, keyboard);
-      enigma.setRings(config.rings.split('').map(c => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
-      enigma.setKey(config.rotorStart);
-      
-      drawComponents();
-    }
-    
-    function drawComponents() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const w = 100, h = canvas.height - 20;
-      let x = 10, y = 10;
-      if (enigma) {
-        enigma.re.draw(ctx, x, y, w, h);
-        x += w + 10;
-        enigma.r1.draw(ctx, x, y, w, h);
-        x += w + 10;
-        enigma.r2.draw(ctx, x, y, w, h);
-        x += w + 10;
-        enigma.r3.draw(ctx, x, y, w, h);
-        x += w + 10;
-        enigma.pb.draw(ctx, x, y, w, h);
-        x += w + 10;
-        keyboard.draw(ctx, x, y, w, h);
-      }
+      document.getElementById("status").innerText = "Enigma initialized with configuration.";
     }
     
     function simulate() {
-      const input = document.getElementById("inputText").value.toUpperCase();
-      if (input.length > 0 && enigma) {
-        const result = enigma.encipher(input.charAt(input.length - 1));
-        document.getElementById("outputText").innerText = result.letter;
-        drawComponents();
-      }
+      // Simulation code can be added here.
     }
     
     function obfuscateFiles() {
@@ -379,47 +381,4 @@ class EnigmaPanel {
 </body>
 </html>`;
   }
-}
-
-async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
-  if (!vscode.workspace.workspaceFolders) {
-    vscode.window.showErrorMessage('No workspace folder open');
-    return;
-  }
-  const workspaceFolder = vscode.workspace.workspaceFolders[0].uri.fsPath;
-  // Supported file types
-  const fileExtensions = ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.html', '.css'];
-  const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**');
-
-  // For demonstration, we use a simplified transformation (a Caesar cipher) as a placeholder.
-  for (const file of files) {
-    const filePath = file.fsPath;
-    if (fileExtensions.includes(path.extname(filePath))) {
-      try {
-        let content = fs.readFileSync(filePath, 'utf8');
-        let transformed = enigmaObfuscate(content, obfuscate);
-        fs.writeFileSync(filePath, transformed, 'utf8');
-      } catch (err) {
-        console.error(`Error processing file ${filePath}:`, err);
-      }
-    }
-  }
-}
-
-function enigmaObfuscate(text: string, obfuscate: boolean): string {
-  // Placeholder obfuscation: shift letters by +3 (obfuscate) or -3 (deobfuscate)
-  const shift = obfuscate ? 3 : -3;
-  return text.split('').map(char => {
-    if (char >= 'a' && char <= 'z') {
-      let code = char.charCodeAt(0) - 97;
-      code = (code + shift + 26) % 26;
-      return String.fromCharCode(code + 97);
-    } else if (char >= 'A' && char <= 'Z') {
-      let code = char.charCodeAt(0) - 65;
-      code = (code + shift + 26) % 26;
-      return String.fromCharCode(code + 65);
-    } else {
-      return char;
-    }
-  }).join('');
 }
