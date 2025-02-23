@@ -73,7 +73,7 @@ class EnigmaPanel {
   }
 
   private _getHtmlForWebview(): string {
-    // Inline HTML UI for configuring the Enigma machine, simulation canvas, and file obfuscation controls.
+    // Inline HTML UI with localStorage for configuration persistence.
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -254,7 +254,7 @@ class EnigmaPanel {
         this.r3.rotateToLetter(key.charAt(2));
       }
       encipher(letter) {
-        // For demonstration, we perform a simple rotor stepping and signal path
+        // For demonstration, we perform a simple rotor stepping and signal path.
         this.r3.rotate();
         let signal = this.kb.forward(letter);
         let path = [signal];
@@ -272,20 +272,34 @@ class EnigmaPanel {
       }
     }
     
-    // Global Enigma instance and supporting objects
+    // Global Enigma instance and supporting objects.
     let enigma;
     const keyboard = new Keyboard();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     
+    // Load persisted configuration from localStorage when the page loads.
+    window.onload = function() {
+      const storedConfig = JSON.parse(localStorage.getItem('enigmaConfig') || '{}');
+      if (storedConfig.rotors) document.getElementById('rotors').value = storedConfig.rotors;
+      if (storedConfig.rotorStart) document.getElementById('rotorStart').value = storedConfig.rotorStart;
+      if (storedConfig.rings) document.getElementById('rings').value = storedConfig.rings;
+      if (storedConfig.plugboard) document.getElementById('plugboard').value = storedConfig.plugboard;
+      if (storedConfig.reflector) document.getElementById('reflector').value = storedConfig.reflector;
+    };
+    
     function initEnigma() {
-      const rotorsInput = document.getElementById("rotors").value;
-      const rotorStart = document.getElementById("rotorStart").value;
-      const ringsInput = document.getElementById("rings").value;
-      const plugboardInput = document.getElementById("plugboard").value;
-      const reflectorInput = document.getElementById("reflector").value;
+      const config = {
+        rotors: document.getElementById("rotors").value,
+        rotorStart: document.getElementById("rotorStart").value,
+        rings: document.getElementById("rings").value,
+        plugboard: document.getElementById("plugboard").value,
+        reflector: document.getElementById("reflector").value
+      };
+      // Save configuration locally so it persists if the webview reloads.
+      localStorage.setItem('enigmaConfig', JSON.stringify(config));
       
-      const rotorNames = rotorsInput.split("-");
+      const rotorNames = config.rotors.split("-");
       // Predefined wirings for demonstration
       const rotorWirings = {
         "I": "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
@@ -303,11 +317,11 @@ class EnigmaPanel {
       const r1 = new Rotor(rotorWirings[rotorNames[0]], "Q");
       const r2 = new Rotor(rotorWirings[rotorNames[1]], "E");
       const r3 = new Rotor(rotorWirings[rotorNames[2]], "V");
-      const reflector = new Reflector(reflectorWirings[reflectorInput]);
-      const plugboard = new Plugboard(plugboardInput);
+      const reflector = new Reflector(reflectorWirings[config.reflector]);
+      const plugboard = new Plugboard(config.plugboard);
       enigma = new Enigma(reflector, r1, r2, r3, plugboard, keyboard);
-      enigma.setRings(ringsInput.split('').map(c => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
-      enigma.setKey(rotorStart);
+      enigma.setRings(config.rings.split('').map(c => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
+      enigma.setKey(config.rotorStart);
       
       drawComponents();
     }
