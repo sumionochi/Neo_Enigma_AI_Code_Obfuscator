@@ -2,10 +2,6 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-/* --------------------------------------------------------------------------
-   Enigma Machine Classes for File Obfuscation (Extension Host)
-   These classes replicate the simulation logic but without any UI drawing.
--------------------------------------------------------------------------- */
 class Keyboard {
   forward(letter: string): number {
     return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
@@ -142,9 +138,6 @@ class Enigma {
   }
 }
 
-/* --------------------------------------------------------------------------
-   Updated File Processing Functions Using the Enigma Logic
--------------------------------------------------------------------------- */
 async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
   if (!vscode.workspace.workspaceFolders) {
     vscode.window.showErrorMessage('No workspace folder open');
@@ -216,9 +209,6 @@ function enigmaObfuscate(text: string, config: any, obfuscate: boolean): string 
   return transformed;
 }
 
-/* --------------------------------------------------------------------------
-   VS Code Extension Activation / Webview Code
--------------------------------------------------------------------------- */
 export function activate(context: vscode.ExtensionContext) {
   // Use extensionPath to build a URI for the extension folder.
   const extensionUri = vscode.Uri.file(context.extensionPath);
@@ -271,6 +261,35 @@ class EnigmaPanel {
             await processFilesUsingEnigma(message.config, false);
             this._panel.webview.postMessage({ command: 'status', text: 'Files deobfuscated.' });
             break;
+          case 'importConfig':
+            const uris = await vscode.window.showOpenDialog({
+              openLabel: 'Select Configuration',
+              filters: { 'JSON Files': ['json'] }
+            });
+            if (uris && uris.length > 0) {
+              try {
+                const content = await fs.promises.readFile(uris[0].fsPath, 'utf8');
+                this._panel.webview.postMessage({ command: 'importConfigResult', data: content });
+              } catch (error) {
+                this._panel.webview.postMessage({ command: 'status', text: 'Error reading configuration file.' });
+              }
+            }
+            break;
+          case 'exportConfig':
+            // Prompt user to save configuration
+            const saveUri = await vscode.window.showSaveDialog({
+              saveLabel: 'Export Configuration',
+              filters: { 'JSON Files': ['json'] }
+            });
+            if (saveUri) {
+              try {
+                await fs.promises.writeFile(saveUri.fsPath, message.data, 'utf8');
+                this._panel.webview.postMessage({ command: 'status', text: 'Configuration exported.' });
+              } catch (error) {
+                this._panel.webview.postMessage({ command: 'status', text: 'Error exporting configuration.' });
+              }
+            }
+            break;  
         }
       },
       undefined,
@@ -290,7 +309,6 @@ class EnigmaPanel {
   }
 
   private _getHtmlForWebview(): string {
-    // Inline HTML UI remains mostly unchanged.
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -328,9 +346,54 @@ class EnigmaPanel {
   <h2>File Obfuscation</h2>
   <button onclick="obfuscateFiles()">Obfuscate Files</button>
   <button onclick="deobfuscateFiles()">Deobfuscate Files</button>
+  <!-- Inside the File Obfuscation section -->
+  <button onclick="exportConfig()">Export Configuration</button>
+  <button onclick="importConfig()">Import Configuration</button>
   <p id="status"></p>
   <script>
+
+  function importConfig() {
+    // Request the extension to open a file dialog
+    vscode.postMessage({ command: 'importConfig' });
+  }
+
+  function exportConfig() {
+    // Collect current configuration values
+    const config = {
+      rotors: document.getElementById("rotors").value,
+      rotorStart: document.getElementById("rotorStart").value,
+      rings: document.getElementById("rings").value,
+      plugboard: document.getElementById("plugboard").value,
+      reflector: document.getElementById("reflector").value
+    };
+    // Send the configuration to the extension
+    vscode.postMessage({ command: 'exportConfig', data: JSON.stringify(config) });
+  }
     const vscode = acquireVsCodeApi();
+
+    window.addEventListener('message', (event) => {
+      const message = event.data;
+      switch (message.command) {
+        case 'importConfigResult':
+          try {
+            const config = JSON.parse(message.data);
+            document.getElementById("rotors").value = config.rotors || "I-II-III";
+            document.getElementById("rotorStart").value = config.rotorStart || "MCK";
+            document.getElementById("rings").value = config.rings || "AAA";
+            document.getElementById("plugboard").value = config.plugboard || "";
+            document.getElementById("reflector").value = config.reflector || "B";
+            
+            initEnigma();
+            document.getElementById("status").innerText = "Configuration imported and applied.";
+          } catch (error) {
+            document.getElementById("status").innerText = "Error importing configuration.";
+          }
+          break;
+
+        default:
+          break;
+      }
+    });
 
     // Restore state on load using vscode.getState
     window.addEventListener('load', () => {
@@ -771,6 +834,6 @@ class EnigmaPanel {
   </script>
 </body>
 </html>
-`;
+    `;
   }
 }
