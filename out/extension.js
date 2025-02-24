@@ -13,6 +13,7 @@ exports.deactivate = exports.activate = void 0;
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 class Keyboard {
     forward(letter) {
         return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
@@ -255,8 +256,22 @@ class EnigmaPanel {
                     });
                     if (uris && uris.length > 0) {
                         try {
-                            const content = yield fs.promises.readFile(uris[0].fsPath, 'utf8');
-                            this._panel.webview.postMessage({ command: 'importConfigResult', data: content });
+                            const encryptedContent = yield fs.promises.readFile(uris[0].fsPath, 'utf8');
+                            const passphrase = yield vscode.window.showInputBox({
+                                prompt: 'Enter passphrase to decrypt configuration',
+                                password: true
+                            });
+                            if (!passphrase) {
+                                this._panel.webview.postMessage({ command: 'status', text: 'Import cancelled.' });
+                                return;
+                            }
+                            try {
+                                const decryptedContent = this.decryptConfig(encryptedContent, passphrase);
+                                this._panel.webview.postMessage({ command: 'importConfigResult', data: decryptedContent });
+                            }
+                            catch (decryptError) {
+                                this._panel.webview.postMessage({ command: 'status', text: 'Invalid passphrase or corrupted configuration file.' });
+                            }
                         }
                         catch (error) {
                             this._panel.webview.postMessage({ command: 'status', text: 'Error reading configuration file.' });
@@ -265,14 +280,23 @@ class EnigmaPanel {
                     break;
                 case 'exportConfig':
                     // Prompt user to save configuration
+                    const passphrase = yield vscode.window.showInputBox({
+                        prompt: 'Enter passphrase to encrypt configuration',
+                        password: true
+                    });
+                    if (!passphrase) {
+                        this._panel.webview.postMessage({ command: 'status', text: 'Export cancelled.' });
+                        return;
+                    }
                     const saveUri = yield vscode.window.showSaveDialog({
                         saveLabel: 'Export Configuration',
                         filters: { 'JSON Files': ['json'] }
                     });
                     if (saveUri) {
                         try {
-                            yield fs.promises.writeFile(saveUri.fsPath, message.data, 'utf8');
-                            this._panel.webview.postMessage({ command: 'status', text: 'Configuration exported.' });
+                            const encryptedConfig = this.encryptConfig(message.data, passphrase);
+                            yield fs.promises.writeFile(saveUri.fsPath, encryptedConfig, 'utf8');
+                            this._panel.webview.postMessage({ command: 'status', text: 'Configuration exported securely.' });
                         }
                         catch (error) {
                             this._panel.webview.postMessage({ command: 'status', text: 'Error exporting configuration.' });
@@ -291,6 +315,32 @@ class EnigmaPanel {
             if (x)
                 x.dispose();
         }
+    }
+    encryptConfig(data, passphrase) {
+        const salt = crypto.randomBytes(16);
+        const key = crypto.scryptSync(passphrase, salt, 32);
+        const iv = crypto.randomBytes(16);
+        const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+        const encrypted = Buffer.concat([cipher.update(data, 'utf8'), cipher.final()]);
+        const authTag = cipher.getAuthTag();
+        const result = {
+            salt: salt.toString('hex'),
+            iv: iv.toString('hex'),
+            encrypted: encrypted.toString('hex'),
+            authTag: authTag.toString('hex')
+        };
+        return JSON.stringify(result);
+    }
+    decryptConfig(encryptedData, passphrase) {
+        const { salt, iv, encrypted, authTag } = JSON.parse(encryptedData);
+        const key = crypto.scryptSync(passphrase, Buffer.from(salt, 'hex'), 32);
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'hex'));
+        decipher.setAuthTag(Buffer.from(authTag, 'hex'));
+        const decrypted = Buffer.concat([
+            decipher.update(Buffer.from(encrypted, 'hex')),
+            decipher.final()
+        ]);
+        return decrypted.toString('utf8');
     }
     _getHtmlForWebview() {
         return `<!DOCTYPE html>
