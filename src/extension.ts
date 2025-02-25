@@ -3,6 +3,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
+// Attempt to load the Gemini library if installed
+let GoogleGenerativeAI: any;
+try {
+  GoogleGenerativeAI = require('@google/generative-ai').GoogleGenerativeAI;
+} catch (err) {
+  console.warn('Warning: @google/generative-ai not installed. Auto-config will not work.');
+}
+
+/* ---------------------------
+   Enigma Classes (Unchanged)
+----------------------------*/
 class Keyboard {
   forward(letter: string): number {
     return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
@@ -74,7 +85,6 @@ class Rotor {
     this.rotate(n);
   }
   setRing(n: number) {
-    // n is expected as a 1-indexed value (e.g. A -> 1)
     this.rotate(n - 1, false);
     let nNotch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(this.notch);
     this.notch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt((nNotch - n + 1 + 26) % 26);
@@ -115,13 +125,11 @@ class Enigma {
     this.r3.setRing(rings[2]);
   }
   setKey(key: string) {
-    // key is expected to be a three-letter string (e.g. "MCK")
     this.r1.rotateToLetter(key.charAt(0).toUpperCase());
     this.r2.rotateToLetter(key.charAt(1).toUpperCase());
     this.r3.rotateToLetter(key.charAt(2).toUpperCase());
   }
   encipher(letter: string): { path: number[], letter: string } {
-    // For each letter, rotor r3 steps automatically.
     this.r3.rotate();
     let signal = this.kb.forward(letter);
     let path = [signal];
@@ -139,6 +147,9 @@ class Enigma {
   }
 }
 
+/* -------------------------------
+   Processing Files With Enigma
+------------------------------- */
 async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
   if (!vscode.workspace.workspaceFolders) {
     vscode.window.showErrorMessage('No workspace folder open');
@@ -153,7 +164,6 @@ async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
     if (fileExtensions.includes(path.extname(filePath))) {
       try {
         let content = fs.readFileSync(filePath, 'utf8');
-        // For Enigma, encryption and decryption are the same process if the initial state is reestablished.
         let transformed = enigmaObfuscate(content, config, obfuscate);
         fs.writeFileSync(filePath, transformed, 'utf8');
       } catch (err) {
@@ -164,7 +174,6 @@ async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
 }
 
 function enigmaObfuscate(text: string, config: any, obfuscate: boolean): string {
-  // Define wirings for the rotors and reflector (for demonstration)
   const rotorWirings: { [key: string]: string } = {
     "I": "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
     "II": "AJDKSIRUXBLHWTMCQGZNPYFVOE",
@@ -178,7 +187,6 @@ function enigmaObfuscate(text: string, config: any, obfuscate: boolean): string 
     "C": "FVPJIAOYEDRZXWGCTKUQSBNMHL"
   };
 
-  // Instantiate rotors based on the configuration
   const rotorNames = config.rotors.split("-");
   const r1 = new Rotor(rotorWirings[rotorNames[0]], "Q");
   const r2 = new Rotor(rotorWirings[rotorNames[1]], "E");
@@ -188,17 +196,14 @@ function enigmaObfuscate(text: string, config: any, obfuscate: boolean): string 
   const keyboard = new Keyboard();
   const enigma = new Enigma(reflector, r1, r2, r3, plugboard, keyboard);
 
-  // Configure rings and rotor start positions
-  enigma.setRings(config.rings.split('').map((c:string) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
+  enigma.setRings(config.rings.split('').map((c: string) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
   enigma.setKey(config.rotorStart);
 
   let transformed = '';
-  // Process the text one character at a time
   for (const char of text) {
     if (/[A-Za-z]/.test(char)) {
       const result = enigma.encipher(char.toUpperCase());
       let newChar = result.letter;
-      // Preserve original case
       if (char === char.toLowerCase()) {
         newChar = newChar.toLowerCase();
       }
@@ -210,25 +215,77 @@ function enigmaObfuscate(text: string, config: any, obfuscate: boolean): string 
   return transformed;
 }
 
-export function activate(context: vscode.ExtensionContext) {
-  // Use extensionPath to build a URI for the extension folder.
-  const extensionUri = vscode.Uri.file(context.extensionPath);
+/* -------------------------------
+   Gemini + JSON Sanitizing
+------------------------------- */
+const geminiPrompt = `
+Generate a random secure Enigma configuration in JSON format only.
+No extra text, no code fences. Must have:
+{
+  "rotors": "I-II-III",
+  "rotorStart": "MCK",
+  "rings": "AAA",
+  "plugboard": "AB CD EF",
+  "reflector": "B"
+}
+Return ONLY valid JSON, with no explanations.
+`;
 
+function sanitizeGeminiOutput(raw: string): string {
+  let cleaned = raw.replace(/^```(\w+)?/gm, '').replace(/```$/gm, '').trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) {
+    throw new Error(`No JSON object found in Gemini response:\n${cleaned}`);
+  }
+  return match[0];
+}
+
+async function generateEnigmaConfig(): Promise<any> {
+  const { GoogleGenerativeAI } = require('@google/generative-ai');
+  const apiKey = '';
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const generationConfig = {
+    temperature: 1,
+    topP: 0.95,
+    topK: 40,
+    maxOutputTokens: 8192,
+    responseMimeType: "text/plain",
+  };
+  const chatSession = model.startChat({
+    generationConfig,
+    history: [],
+  });
+  const response = await chatSession.sendMessage(geminiPrompt);
+  const rawText = response.response.text();
+  const cleanedText = sanitizeGeminiOutput(rawText);
+  return JSON.parse(cleanedText);
+}
+
+/* ------------------------------------------
+   VSCode Extension Activation/Deactivation
+------------------------------------------ */
+export function activate(context: vscode.ExtensionContext) {
+  const extensionUri = vscode.Uri.file(context.extensionPath);
   let disposable = vscode.commands.registerCommand('extension.openEnigmaObfuscator', () => {
-    EnigmaPanel.createOrShow(extensionUri);
+    EnigmaPanel.createOrShow(extensionUri, context);
   });
   context.subscriptions.push(disposable);
 }
 
 export function deactivate() {}
 
+/* ------------------------------------------
+   EnigmaPanel Webview (with autoObfuscate and passphrase popup)
+------------------------------------------ */
 class EnigmaPanel {
   public static currentPanel: EnigmaPanel | undefined;
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
+  private readonly _context: vscode.ExtensionContext;
   private _disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(extensionUri: vscode.Uri) {
+  public static createOrShow(extensionUri: vscode.Uri, extensionContext: vscode.ExtensionContext) {
     const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
     if (EnigmaPanel.currentPanel) {
       EnigmaPanel.currentPanel._panel.reveal(column);
@@ -238,19 +295,19 @@ class EnigmaPanel {
       'enigmaObfuscator',
       'Enigma Code Obfuscator',
       column || vscode.ViewColumn.One,
-      {
-        enableScripts: true
-      }
+      { enableScripts: true }
     );
-    EnigmaPanel.currentPanel = new EnigmaPanel(panel, extensionUri);
+    EnigmaPanel.currentPanel = new EnigmaPanel(panel, extensionUri, extensionContext);
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
     this._panel = panel;
     this._extensionUri = extensionUri;
+    this._context = context; // so we can use secrets API
 
     this._panel.webview.html = this._getHtmlForWebview();
 
+    // Listen for messages from the webview
     this._panel.webview.onDidReceiveMessage(
       async message => {
         switch (message.command) {
@@ -263,56 +320,113 @@ class EnigmaPanel {
             this._panel.webview.postMessage({ command: 'status', text: 'Files deobfuscated.' });
             break;
           case 'importConfig':
-            const uris = await vscode.window.showOpenDialog({
-              openLabel: 'Select Configuration',
-              filters: { 'JSON Files': ['json'] }
-            });
-            if (uris && uris.length > 0) {
-              try {
-                const encryptedContent = await fs.promises.readFile(uris[0].fsPath, 'utf8');
-                const passphrase = await vscode.window.showInputBox({
-                  prompt: 'Enter passphrase to decrypt configuration',
-                  password: true
-                });
-                if (!passphrase) {
-                  this._panel.webview.postMessage({ command: 'status', text: 'Import cancelled.' });
-                  return;
-                }
+            {
+              const uris = await vscode.window.showOpenDialog({
+                openLabel: 'Select Configuration',
+                filters: { 'JSON Files': ['json'] }
+              });
+              if (uris && uris.length > 0) {
                 try {
-                  const decryptedContent = this.decryptConfig(encryptedContent, passphrase);
-                  this._panel.webview.postMessage({ command: 'importConfigResult', data: decryptedContent });
-                } catch (decryptError) {
-                  this._panel.webview.postMessage({ command: 'status', text: 'Invalid passphrase or corrupted configuration file.' });
+                  const encryptedContent = await fs.promises.readFile(uris[0].fsPath, 'utf8');
+                  // 1) Attempt to retrieve stored passphrase from secrets:
+                  const storedPassphrase = await (this._context as any).secrets.get('enigmaAutoPassphrase');
+                  if (storedPassphrase) {
+                    try {
+                      const decryptedAuto = this.decryptConfig(encryptedContent, storedPassphrase);
+                      this._panel.webview.postMessage({ command: 'importConfigResult', data: decryptedAuto });
+                      this._panel.webview.postMessage({ command: 'status', text: 'Config imported via stored passphrase.' });
+                      return;
+                    } catch (err) {
+                      console.warn('Stored passphrase did not match this config file. Fallback to user prompt...');
+                    }
+                  }
+                  // 2) If no passphrase in secrets or mismatch, prompt user:
+                  const passphrase = await vscode.window.showInputBox({
+                    prompt: 'Enter passphrase to decrypt configuration',
+                    password: true
+                  });
+                  if (!passphrase) {
+                    this._panel.webview.postMessage({ command: 'status', text: 'Import cancelled.' });
+                    return;
+                  }
+                  try {
+                    const decryptedContent = this.decryptConfig(encryptedContent, passphrase);
+                    this._panel.webview.postMessage({ command: 'importConfigResult', data: decryptedContent });
+                  } catch (decryptError) {
+                    this._panel.webview.postMessage({ command: 'status', text: 'Invalid passphrase or corrupted configuration file.' });
+                  }
+                } catch (error) {
+                  this._panel.webview.postMessage({ command: 'status', text: 'Error reading configuration file.' });
                 }
-              } catch (error) {
-                this._panel.webview.postMessage({ command: 'status', text: 'Error reading configuration file.' });
               }
             }
             break;
           case 'exportConfig':
-            // Prompt user to save configuration
-            const passphrase = await vscode.window.showInputBox({
-              prompt: 'Enter passphrase to encrypt configuration',
-              password: true
-            });
-            if (!passphrase) {
-              this._panel.webview.postMessage({ command: 'status', text: 'Export cancelled.' });
-              return;
-            }
-            const saveUri = await vscode.window.showSaveDialog({
-              saveLabel: 'Export Configuration',
-              filters: { 'JSON Files': ['json'] }
-            });
-            if (saveUri) {
-              try {
-                const encryptedConfig = this.encryptConfig(message.data, passphrase);
-                await fs.promises.writeFile(saveUri.fsPath, encryptedConfig, 'utf8');
-                this._panel.webview.postMessage({ command: 'status', text: 'Configuration exported securely.' });
-              } catch (error) {
-                this._panel.webview.postMessage({ command: 'status', text: 'Error exporting configuration.' });
+            {
+              const passphrase = await vscode.window.showInputBox({
+                prompt: 'Enter passphrase to encrypt configuration',
+                password: true
+              });
+              if (!passphrase) {
+                this._panel.webview.postMessage({ command: 'status', text: 'Export cancelled.' });
+                return;
+              }
+              const saveUri = await vscode.window.showSaveDialog({
+                saveLabel: 'Export Configuration',
+                filters: { 'JSON Files': ['json'] }
+              });
+              if (saveUri) {
+                try {
+                  const encryptedConfig = this.encryptConfig(message.data, passphrase);
+                  await fs.promises.writeFile(saveUri.fsPath, encryptedConfig, 'utf8');
+                  this._panel.webview.postMessage({ command: 'status', text: 'Configuration exported securely.' });
+                } catch (error) {
+                  this._panel.webview.postMessage({ command: 'status', text: 'Error exporting configuration.' });
+                }
               }
             }
-            break;  
+            break;
+
+          // NEW: Auto Configure & Obfuscate
+          case 'autoObfuscate':
+            this._panel.webview.postMessage({ command: 'spinner', show: true });
+            (async () => {
+              try {
+                // 1) Generate random config from Gemini
+                const config = await generateEnigmaConfig();
+                // 2) Obfuscate files
+                await processFilesUsingEnigma(config, true);
+                // 3) Generate a passphrase, store in secrets
+                const passphrase = crypto.randomBytes(16).toString('hex');
+                await (this._context as any).secrets.store('enigmaAutoPassphrase', passphrase);
+                // 4) Encrypt the config with that passphrase
+                const encryptedConfig = this.encryptConfig(JSON.stringify(config), passphrase);
+                // 5) Save the encrypted config to the workspace
+                if (!vscode.workspace.workspaceFolders) {
+                  vscode.window.showErrorMessage('No workspace folder open');
+                  this._panel.webview.postMessage({ command: 'spinner', show: false });
+                  return;
+                }
+                const folderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+                const configFilePath = path.join(folderPath, 'enigma_config_secret.json');
+                await fs.promises.writeFile(configFilePath, encryptedConfig, 'utf8');
+                // 6) Show the one-time popup to display/copy the passphrase
+                this._panel.webview.postMessage({
+                  command: 'passphraseGenerated',
+                  passphrase
+                });
+                this._panel.webview.postMessage({
+                  command: 'status',
+                  text: 'Auto config complete. Files obfuscated & config secret saved.'
+                });
+              } catch (err) {
+                console.error(err);
+                this._panel.webview.postMessage({ command: 'status', text: 'Error in auto configuration.' });
+              } finally {
+                this._panel.webview.postMessage({ command: 'spinner', show: false });
+              }
+            })();
+            break;
         }
       },
       undefined,
@@ -370,10 +484,69 @@ class EnigmaPanel {
     input, textarea, button { margin: 5px; padding: 5px; }
     #canvas { background-color: #222; border: 1px solid white; display: block; margin-top: 10px; }
     textarea { width: 800px; height: 50px; }
+    /* Spinner overlay */
+    #loadingOverlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+      color: #fff;
+      font-size: 1.5em;
+    }
+    #loadingSpinner {
+      border: 8px solid #f3f3f3;
+      border-top: 8px solid #3498db;
+      border-radius: 50%;
+      width: 60px; height: 60px;
+      animation: spin 1s linear infinite;
+      margin-right: 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    /* Passphrase popup modal */
+    #passphrasePopup {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+    }
+    #passphrasePopupContent {
+      background: #fff;
+      color: #000;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 400px;
+      text-align: center;
+    }
+    #passphrasePopupContent p {
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
   <h1>Enigma Code Obfuscator</h1>
+  <!-- Spinner Overlay -->
+  <div id="loadingOverlay">
+    <div id="loadingSpinner"></div>
+    <div>Auto-obfuscating... Please wait.</div>
+  </div>
+  <!-- Passphrase Popup Modal (shown only once per auto-obfuscation) -->
+  <div id="passphrasePopup">
+    <div id="passphrasePopupContent">
+      <p><strong>Important:</strong> Please save this passphrase securely. This popup will only appear once per auto obfuscation.</p>
+      <p id="passphraseText" style="word-wrap: break-word; font-family: monospace;"></p>
+      <button id="copyPassphrase">Copy Passphrase</button>
+      <button id="closePassphrasePopup">Close</button>
+    </div>
+  </div>
   <h2>Configuration</h2>
   <label>Rotors (e.g. I-II-III):</label>
   <input type="text" id="rotors" value="I-II-III"><br>
@@ -397,31 +570,62 @@ class EnigmaPanel {
   <h2>File Obfuscation</h2>
   <button onclick="obfuscateFiles()">Obfuscate Files</button>
   <button onclick="deobfuscateFiles()">Deobfuscate Files</button>
-  <!-- Inside the File Obfuscation section -->
   <button onclick="exportConfig()">Export Configuration</button>
   <button onclick="importConfig()">Import Configuration</button>
+  <!-- NEW: Auto Configure & Obfuscate -->
+  <button onclick="autoConfigureObfuscate()">Auto Configure & Obfuscate</button>
   <p id="status"></p>
   <script>
-
-  function importConfig() {
-    // Request the extension to open a file dialog
-    vscode.postMessage({ command: 'importConfig' });
-  }
-
-  function exportConfig() {
-    // Collect current configuration values
-    const config = {
-      rotors: document.getElementById("rotors").value,
-      rotorStart: document.getElementById("rotorStart").value,
-      rings: document.getElementById("rings").value,
-      plugboard: document.getElementById("plugboard").value,
-      reflector: document.getElementById("reflector").value
-    };
-    // Send the configuration to the extension
-    vscode.postMessage({ command: 'exportConfig', data: JSON.stringify(config) });
-  }
     const vscode = acquireVsCodeApi();
+    let passphrasePopupShown = false; // To ensure one-time display per auto obfuscation
 
+    function showSpinner() {
+      document.getElementById('loadingOverlay').style.display = 'flex';
+    }
+    function hideSpinner() {
+      document.getElementById('loadingOverlay').style.display = 'none';
+    }
+    function showPassphrasePopup(passphrase) {
+      if (passphrasePopupShown) return;
+      passphrasePopupShown = true;
+      const popup = document.getElementById('passphrasePopup');
+      const passphraseText = document.getElementById('passphraseText');
+      passphraseText.textContent = passphrase;
+      popup.style.display = 'flex';
+    }
+    function hidePassphrasePopup() {
+      document.getElementById('passphrasePopup').style.display = 'none';
+      // Reset flag so that next auto obfuscation will show popup again
+      passphrasePopupShown = false;
+    }
+    document.getElementById('copyPassphrase').addEventListener('click', async () => {
+      const text = document.getElementById('passphraseText').textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        alert("Passphrase copied to clipboard. Please store it safely.");
+      } catch (err) {
+        alert("Unable to copy. Please copy manually: " + text);
+      }
+    });
+    document.getElementById('closePassphrasePopup').addEventListener('click', () => {
+      hidePassphrasePopup();
+    });
+    function importConfig() {
+      vscode.postMessage({ command: 'importConfig' });
+    }
+    function exportConfig() {
+      const config = {
+        rotors: document.getElementById("rotors").value,
+        rotorStart: document.getElementById("rotorStart").value,
+        rings: document.getElementById("rings").value,
+        plugboard: document.getElementById("plugboard").value,
+        reflector: document.getElementById("reflector").value
+      };
+      vscode.postMessage({ command: 'exportConfig', data: JSON.stringify(config) });
+    }
+    function autoConfigureObfuscate() {
+      vscode.postMessage({ command: 'autoObfuscate' });
+    }
     window.addEventListener('message', (event) => {
       const message = event.data;
       switch (message.command) {
@@ -433,20 +637,28 @@ class EnigmaPanel {
             document.getElementById("rings").value = config.rings || "AAA";
             document.getElementById("plugboard").value = config.plugboard || "";
             document.getElementById("reflector").value = config.reflector || "B";
-            
             initEnigma();
             document.getElementById("status").innerText = "Configuration imported and applied.";
           } catch (error) {
             document.getElementById("status").innerText = "Error importing configuration.";
           }
           break;
-
-        default:
+        case 'spinner':
+          if (message.show) {
+            showSpinner();
+          } else {
+            hideSpinner();
+          }
+          break;
+        case 'passphraseGenerated':
+          // Show the popup with passphrase (one time per auto obfuscation)
+          showPassphrasePopup(message.passphrase);
+          break;
+        case 'status':
+          document.getElementById('status').innerText = message.text;
           break;
       }
     });
-
-    // Restore state on load using vscode.getState
     window.addEventListener('load', () => {
       const state = vscode.getState();
       if (state && state.enigmaConfig) {
@@ -457,7 +669,6 @@ class EnigmaPanel {
         document.getElementById('reflector').value = state.enigmaConfig.reflector || "B";
       }
     });
-
     function initEnigma() {
       const config = {
         rotors: document.getElementById("rotors").value,
@@ -468,13 +679,11 @@ class EnigmaPanel {
       };
       vscode.setState({ enigmaConfig: config });
       document.getElementById("status").innerText = "Enigma initialized with configuration.";
-      // Also reinitialize the simulation instance.
       initSimulation();
     }
-
-    /* -------------------------
-       Simulation Classes
-       ------------------------- */
+    /* ------------------------------------
+       Simulation Classes (same as before)
+    ------------------------------------ */
     class Keyboard {
       forward(letter) {
         return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
@@ -497,7 +706,6 @@ class EnigmaPanel {
         }
       }
     }
-
     class Plugboard {
       constructor(pairsStr) {
         this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
@@ -540,7 +748,6 @@ class EnigmaPanel {
         }
       }
     }
-
     class Rotor {
       constructor(wiring, notch) {
         this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
@@ -570,10 +777,10 @@ class EnigmaPanel {
         let n = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
         this.rotate(n);
       }
-      setRing(n) {
-        this.rotate(n - 1, false);
+      setRing(r) {
+        this.rotate(r - 1, false);
         let nNotch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(this.notch);
-        this.notch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt((nNotch - n + 1 + 26) % 26);
+        this.notch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt((nNotch - r + 1 + 26) % 26);
       }
       draw(ctx, x, y, w, h, highlightIndex) {
         ctx.strokeStyle = "white";
@@ -592,7 +799,6 @@ class EnigmaPanel {
         }
       }
     }
-
     class Reflector {
       constructor(wiring) {
         this.left = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
@@ -619,7 +825,6 @@ class EnigmaPanel {
         }
       }
     }
-
     class Enigma {
       constructor(reflector, r1, r2, r3, plugboard, keyboard) {
         this.re = reflector;
@@ -640,98 +845,40 @@ class EnigmaPanel {
         this.r3.rotateToLetter(key.charAt(2));
       }
       encipher(letter) {
-        // Step the rightmost rotor first
         this.r3.rotate();
-        // Build a path array to track forward/backward indices
         let path = [];
-
-        // Keyboard forward
         let signal = this.kb.forward(letter);
         path.push(signal);
-
-        // Plugboard forward
-        signal = this.pb.forward(signal);
-        path.push(signal);
-
-        // Rotor3 forward
-        signal = this.r3.forward(signal);
-        path.push(signal);
-
-        // Rotor2 forward
-        signal = this.r2.forward(signal);
-        path.push(signal);
-
-        // Rotor1 forward
-        signal = this.r1.forward(signal);
-        path.push(signal);
-
-        // Reflector
-        signal = this.re.reflect(signal);
-        path.push(signal);
-
-        // Rotor1 backward
-        signal = this.r1.backward(signal);
-        path.push(signal);
-
-        // Rotor2 backward
-        signal = this.r2.backward(signal);
-        path.push(signal);
-
-        // Rotor3 backward
-        signal = this.r3.backward(signal);
-        path.push(signal);
-
-        // Plugboard backward
-        signal = this.pb.backward(signal);
-        path.push(signal);
-
-        // Final letter
+        signal = this.pb.forward(signal); path.push(signal);
+        signal = this.r3.forward(signal); path.push(signal);
+        signal = this.r2.forward(signal); path.push(signal);
+        signal = this.r1.forward(signal); path.push(signal);
+        signal = this.re.reflect(signal); path.push(signal);
+        signal = this.r1.backward(signal); path.push(signal);
+        signal = this.r2.backward(signal); path.push(signal);
+        signal = this.r3.backward(signal); path.push(signal);
+        signal = this.pb.backward(signal); path.push(signal);
         let outputLetter = this.kb.backward(signal);
         return { letter: outputLetter, path: path };
       }
     }
-
-    /* -------------------------
-       Simulation Initialization & Drawing
-       ------------------------- */
     let enigma;
     const keyboard = new Keyboard();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-
-    // Define x-positions for each column in the order you draw them:
-    // Reflector, Rotor1, Rotor2, Rotor3, Plugboard, Keyboard
     const X_REFLECTOR = 10;
     const X_ROTOR1    = 120;
     const X_ROTOR2    = 230;
     const X_ROTOR3    = 340;
     const X_PLUGBOARD = 450;
     const X_KEYBOARD  = 560;
-
-    // We have 26 letters, and each column is drawn with height h = (canvas.height - 20).
-    // We'll define a helper function for y-coordinates:
     function letterY(index) {
-      // index is 0..25
-      const topOffset = 10;            // matches the 'y' used in drawComponents
-      const availableHeight = 300 - 20; // same as h in drawComponents
+      const topOffset = 10;
+      const availableHeight = 300 - 20;
       const letterSpacing = availableHeight / 26;
-      // We'll center each letter block
       return topOffset + (index + 0.5) * letterSpacing;
     }
-
-    // Map each step in the path array to the correct x-column
     function getColumnX(stepIndex) {
-      // The path array steps are:
-      //  0: keyboard out
-      //  1: plugboard forward
-      //  2: rotor3 forward
-      //  3: rotor2 forward
-      //  4: rotor1 forward
-      //  5: reflector
-      //  6: rotor1 backward
-      //  7: rotor2 backward
-      //  8: rotor3 backward
-      //  9: plugboard backward
       switch (stepIndex) {
         case 0: return X_KEYBOARD;
         case 1: return X_PLUGBOARD;
@@ -746,35 +893,21 @@ class EnigmaPanel {
         default: return 0;
       }
     }
-
     function drawLineBetween(x1, i1, x2, i2, color) {
       ctx.strokeStyle = color;
       ctx.beginPath();
-      ctx.moveTo(x1 + 50, letterY(i1)); // +50 to shift inside each column a bit
+      ctx.moveTo(x1 + 50, letterY(i1));
       ctx.lineTo(x2 + 50, letterY(i2));
       ctx.stroke();
     }
-
-    // Draw the signal path lines in red (forward) and green (backward)
     function drawPath(path) {
-      // Forward path (0->1->2->3->4->5)
       for (let i = 0; i < 5; i++) {
-        drawLineBetween(
-          getColumnX(i),   path[i],
-          getColumnX(i+1), path[i+1],
-          "red"
-        );
+        drawLineBetween(getColumnX(i), path[i], getColumnX(i+1), path[i+1], "red");
       }
-      // Backward path (5->6->7->8->9)
       for (let i = 5; i < 9; i++) {
-        drawLineBetween(
-          getColumnX(i),   path[i],
-          getColumnX(i+1), path[i+1],
-          "green"
-        );
+        drawLineBetween(getColumnX(i), path[i], getColumnX(i+1), path[i+1], "green");
       }
     }
-
     function initSimulation() {
       const config = {
         rotors: document.getElementById("rotors").value,
@@ -783,7 +916,6 @@ class EnigmaPanel {
         plugboard: document.getElementById("plugboard").value,
         reflector: document.getElementById("reflector").value
       };
-
       const rotorNames = config.rotors.split("-");
       const rotorWirings = {
         "I": "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
@@ -797,7 +929,6 @@ class EnigmaPanel {
         "B": "YRUHQSLDPXNGOKMIEBFZCWVJAT",
         "C": "FVPJIAOYEDRZXWGCTKUQSBNMHL"
       };
-
       const r1 = new Rotor(rotorWirings[rotorNames[0]], "Q");
       const r2 = new Rotor(rotorWirings[rotorNames[1]], "E");
       const r3 = new Rotor(rotorWirings[rotorNames[2]], "V");
@@ -806,48 +937,36 @@ class EnigmaPanel {
       enigma = new Enigma(reflector, r1, r2, r3, plugboard, keyboard);
       enigma.setRings(config.rings.split('').map(c => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
       enigma.setKey(config.rotorStart);
-      drawComponents(); // draw without highlights initially
+      drawComponents();
     }
-
-    // drawComponents highlights the columns based on the last letter's forward path
     function drawComponents(path) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const w = 100, h = canvas.height - 20;
       let x = 10, y = 10;
       if (enigma) {
-        // Reflector highlight: path[5]
         enigma.re.draw(ctx, x, y, w, h, path ? path[5] : undefined);
         x += w + 10;
-        // Rotor1: highlight forward value is path[4]
         enigma.r1.draw(ctx, x, y, w, h, path ? path[4] : undefined);
         x += w + 10;
-        // Rotor2: highlight forward value is path[3]
         enigma.r2.draw(ctx, x, y, w, h, path ? path[3] : undefined);
         x += w + 10;
-        // Rotor3: highlight forward value is path[2]
         enigma.r3.draw(ctx, x, y, w, h, path ? path[2] : undefined);
         x += w + 10;
-        // Plugboard: highlight forward value is path[1]
         enigma.pb.draw(ctx, x, y, w, h, path ? path[1] : undefined);
         x += w + 10;
-        // Keyboard: highlight the key corresponding to the input letter (path[0])
         keyboard.draw(ctx, x, y, w, h, path ? path[0] : undefined);
-
-        // After drawing columns/highlights, draw the signal path lines
         if (path) {
           drawPath(path);
         }
       }
     }
-
     function simulate() {
-      // Initialize simulation if not already done.
       if (!enigma) {
         initSimulation();
       }
       const input = document.getElementById("inputText").value.toUpperCase();
       let output = "";
-      let lastPath = null; // store transformation chain for the last processed letter
+      let lastPath = null;
       for (let char of input) {
         if (/[A-Z]/.test(char)) {
           const result = enigma.encipher(char);
@@ -860,7 +979,6 @@ class EnigmaPanel {
       document.getElementById("outputText").value = output;
       drawComponents(lastPath);
     }
-
     function obfuscateFiles() {
       const config = {
         rotors: document.getElementById("rotors").value,
@@ -871,7 +989,6 @@ class EnigmaPanel {
       };
       vscode.postMessage({ command: 'obfuscateFiles', config: config });
     }
-
     function deobfuscateFiles() {
       const config = {
         rotors: document.getElementById("rotors").value,
