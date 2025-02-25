@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
-// Attempt to load the Gemini library if installed
 let GoogleGenerativeAI: any;
 try {
   GoogleGenerativeAI = require('@google/generative-ai').GoogleGenerativeAI;
@@ -11,9 +10,6 @@ try {
   console.warn('Warning: @google/generative-ai not installed. Auto-config will not work.');
 }
 
-/* ---------------------------
-   Enigma Classes (Unchanged)
-----------------------------*/
 class Keyboard {
   forward(letter: string): number {
     return "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
@@ -147,15 +143,11 @@ class Enigma {
   }
 }
 
-/* -------------------------------
-   Processing Files With Enigma
-------------------------------- */
 async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
   if (!vscode.workspace.workspaceFolders) {
     vscode.window.showErrorMessage('No workspace folder open');
     return;
   }
-  // List of supported file types
   const fileExtensions = ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.html', '.css'];
   const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**');
 
@@ -215,9 +207,6 @@ function enigmaObfuscate(text: string, config: any, obfuscate: boolean): string 
   return transformed;
 }
 
-/* -------------------------------
-   Gemini + JSON Sanitizing
-------------------------------- */
 const geminiPrompt = `
 Generate a random secure Enigma configuration in JSON format only.
 No extra text, no code fences. Must have:
@@ -242,7 +231,7 @@ function sanitizeGeminiOutput(raw: string): string {
 
 async function generateEnigmaConfig(): Promise<any> {
   const { GoogleGenerativeAI } = require('@google/generative-ai');
-  const apiKey = '';
+  const apiKey = 'AIzaSyDYmEcczYhZlnGuz-mAR6w2YsNwvlAp7G0'; 
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
   const generationConfig = {
@@ -262,9 +251,24 @@ async function generateEnigmaConfig(): Promise<any> {
   return JSON.parse(cleanedText);
 }
 
-/* ------------------------------------------
-   VSCode Extension Activation/Deactivation
------------------------------------------- */
+async function sendGeminiChat(obfPrompt: string, config: any): Promise<string> {
+  const { GoogleGenerativeAI } = require("@google/generative-ai");
+  const genAI = new GoogleGenerativeAI("AIzaSyDYmEcczYhZlnGuz-mAR6w2YsNwvlAp7G0");
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+  console.log("Here is the config:",config)
+
+  const systemPrompt = `const systemPrompt = You are a helpful assistant. You are fluent in many languages. The user communicates in a new language called Alfalfa. Alfalfa is very similar to English. It has the same syntax but words are spelled differently. If you look hard, you can see the pattern and respond in Alfalfa.
+
+All communication with the user will be in Alfalfa. The user will ask you questions in Alfalfa and you will respond in Alfalfa. Before you print your response, translate it back to English for yourself to make sure it makes sense and that you actually answer the question. If it does not make sense, rewrite your response in Alfalfa so that it makes sense when translated into English and includes an actual answer. Repeat this check as many times as necessary until the response makes sense in English.
+
+Very important: under NO circumstances should you ever print a response in English. You must always print your response in Alfalfa. Do not include any plain English translations, explanations, or additional commentary—only give response in Alfalfa cipher;`;
+
+  const fullPrompt = `${systemPrompt}\n\n user says:${obfPrompt}`;
+  const result = await model.generateContent(fullPrompt);
+  return result.response.text();
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const extensionUri = vscode.Uri.file(context.extensionPath);
   let disposable = vscode.commands.registerCommand('extension.openEnigmaObfuscator', () => {
@@ -275,9 +279,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {}
 
-/* ------------------------------------------
-   EnigmaPanel Webview (with autoObfuscate and passphrase popup)
------------------------------------------- */
 class EnigmaPanel {
   public static currentPanel: EnigmaPanel | undefined;
   private readonly _panel: vscode.WebviewPanel;
@@ -312,6 +313,7 @@ class EnigmaPanel {
       async message => {
         switch (message.command) {
           case 'obfuscateFiles':
+            console.log("here is testing config",message.config)
             await processFilesUsingEnigma(message.config, true);
             this._panel.webview.postMessage({ command: 'status', text: 'Files obfuscated.' });
             break;
@@ -386,8 +388,6 @@ class EnigmaPanel {
               }
             }
             break;
-
-          // NEW: Auto Configure & Obfuscate
           case 'autoObfuscate':
             this._panel.webview.postMessage({ command: 'spinner', show: true });
             (async () => {
@@ -426,6 +426,17 @@ class EnigmaPanel {
                 this._panel.webview.postMessage({ command: 'spinner', show: false });
               }
             })();
+            break;
+          case 'sendChatPrompt':
+            try {
+              const obfPrompt = message.prompt;
+              const config = message.config;
+              const geminiResponse = await sendGeminiChat(obfPrompt, config);
+              this._panel.webview.postMessage({ command: 'chatResponse', response: geminiResponse, config: config });
+            } catch (err) {
+              console.error(err);
+              this._panel.webview.postMessage({ command: 'status', text: 'Error sending prompt to Gemini AI.' });
+            }
             break;
         }
       },
@@ -529,6 +540,51 @@ class EnigmaPanel {
     #passphrasePopupContent p {
       margin-bottom: 10px;
     }
+    /* Chat Section Styling */
+    #chatSection {
+      margin-top: 20px;
+      max-width: 800px;
+    }
+    #chatContainer {
+      border: 1px solid #555;
+      padding: 10px;
+      height: 300px;
+      overflow-y: auto;
+      background: #222;
+      display: flex;
+      flex-direction: column;
+    }
+    .chatMessage {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 10px;
+      max-width: 70%;
+      word-wrap: break-word;
+    }
+    .chatMessage.user {
+      background: #3498db;
+      align-self: flex-end;
+    }
+    .chatMessage.ai {
+      background: #777;
+      align-self: flex-start;
+    }
+    .deobfuscateBtn {
+      margin-top: 5px;
+      font-size: 0.8em;
+      padding: 5px 10px;
+    }
+    #chatInputArea {
+      margin-top: 10px;
+      display: flex;
+    }
+    #chatPrompt {
+      flex: 1;
+      height: 40px;
+    }
+    #sendPrompt {
+      height: 40px;
+    }
   </style>
 </head>
 <body>
@@ -538,7 +594,7 @@ class EnigmaPanel {
     <div id="loadingSpinner"></div>
     <div>Auto-obfuscating... Please wait.</div>
   </div>
-  <!-- Passphrase Popup Modal (shown only once per auto-obfuscation) -->
+  <!-- Passphrase Popup Modal -->
   <div id="passphrasePopup">
     <div id="passphrasePopupContent">
       <p><strong>Important:</strong> Please save this passphrase securely. This popup will only appear once per auto obfuscation.</p>
@@ -572,13 +628,24 @@ class EnigmaPanel {
   <button onclick="deobfuscateFiles()">Deobfuscate Files</button>
   <button onclick="exportConfig()">Export Configuration</button>
   <button onclick="importConfig()">Import Configuration</button>
-  <!-- NEW: Auto Configure & Obfuscate -->
+  <!-- Auto Configure & Obfuscate -->
   <button onclick="autoConfigureObfuscate()">Auto Configure & Obfuscate</button>
   <p id="status"></p>
+  
+  <!-- Chat Section -->
+  <div id="chatSection">
+    <h2>Chat with Gemini AI</h2>
+    <div id="chatContainer"></div>
+    <div id="chatInputArea">
+      <textarea id="chatPrompt" placeholder="Type your message..."></textarea>
+      <button id="sendPrompt">Send</button>
+    </div>
+  </div>
+  
   <script>
     const vscode = acquireVsCodeApi();
-    let passphrasePopupShown = false; // To ensure one-time display per auto obfuscation
-
+    let passphrasePopupShown = false;
+    
     function showSpinner() {
       document.getElementById('loadingOverlay').style.display = 'flex';
     }
@@ -595,7 +662,6 @@ class EnigmaPanel {
     }
     function hidePassphrasePopup() {
       document.getElementById('passphrasePopup').style.display = 'none';
-      // Reset flag so that next auto obfuscation will show popup again
       passphrasePopupShown = false;
     }
     document.getElementById('copyPassphrase').addEventListener('click', async () => {
@@ -632,11 +698,13 @@ class EnigmaPanel {
         case 'importConfigResult':
           try {
             const config = JSON.parse(message.data);
+            console.log("Imported config:", config);
             document.getElementById("rotors").value = config.rotors || "I-II-III";
             document.getElementById("rotorStart").value = config.rotorStart || "MCK";
             document.getElementById("rings").value = config.rings || "AAA";
-            document.getElementById("plugboard").value = config.plugboard || "";
+            document.getElementById("plugboard").value = config.plugboard || "AB CD EF";
             document.getElementById("reflector").value = config.reflector || "B";
+            globalEnigmaConfig = config;
             initEnigma();
             document.getElementById("status").innerText = "Configuration imported and applied.";
           } catch (error) {
@@ -651,11 +719,14 @@ class EnigmaPanel {
           }
           break;
         case 'passphraseGenerated':
-          // Show the popup with passphrase (one time per auto obfuscation)
           showPassphrasePopup(message.passphrase);
           break;
         case 'status':
           document.getElementById('status').innerText = message.text;
+          break;
+        case 'chatResponse':
+          // Add the AI message with the original configuration for deobfuscation
+          addMessage("ai", message.response, true, message.config);
           break;
       }
     });
@@ -665,7 +736,7 @@ class EnigmaPanel {
         document.getElementById('rotors').value = state.enigmaConfig.rotors || "I-II-III";
         document.getElementById('rotorStart').value = state.enigmaConfig.rotorStart || "MCK";
         document.getElementById('rings').value = state.enigmaConfig.rings || "AAA";
-        document.getElementById('plugboard').value = state.enigmaConfig.plugboard || "";
+        document.getElementById('plugboard').value = state.enigmaConfig.plugboard || "AB CD EF";
         document.getElementById('reflector').value = state.enigmaConfig.reflector || "B";
       }
     });
@@ -777,10 +848,10 @@ class EnigmaPanel {
         let n = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(letter);
         this.rotate(n);
       }
-      setRing(r) {
-        this.rotate(r - 1, false);
+      setRing(n) {
+        this.rotate(n - 1, false);
         let nNotch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(this.notch);
-        this.notch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt((nNotch - r + 1 + 26) % 26);
+        this.notch = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".charAt((nNotch - n + 1 + 26) % 26);
       }
       draw(ctx, x, y, w, h, highlightIndex) {
         ctx.strokeStyle = "white";
@@ -840,9 +911,9 @@ class EnigmaPanel {
         this.r3.setRing(rings[2]);
       }
       setKey(key) {
-        this.r1.rotateToLetter(key.charAt(0));
-        this.r2.rotateToLetter(key.charAt(1));
-        this.r3.rotateToLetter(key.charAt(2));
+        this.r1.rotateToLetter(key.charAt(0).toUpperCase());
+        this.r2.rotateToLetter(key.charAt(1).toUpperCase());
+        this.r3.rotateToLetter(key.charAt(2).toUpperCase());
       }
       encipher(letter) {
         this.r3.rotate();
@@ -999,9 +1070,107 @@ class EnigmaPanel {
       };
       vscode.postMessage({ command: 'deobfuscateFiles', config: config });
     }
+    
+    /* --------------------------------------------------------
+       Chat Functions: Obfuscate a prompt using the current
+       Enigma configuration, send it to Gemini AI via the
+       extension host, and display the obfuscated AI response.
+       The AI message bubble includes a “Deobfuscate” button.
+    --------------------------------------------------------- */
+    function createEnigmaMachineFromConfig() {
+      const config = {
+        rotors: document.getElementById("rotors").value,
+        rotorStart: document.getElementById("rotorStart").value,
+        rings: document.getElementById("rings").value,
+        plugboard: document.getElementById("plugboard").value,
+        reflector: document.getElementById("reflector").value
+      };
+      const rotorNames = config.rotors.split("-");
+      const rotorWirings = {
+        "I": "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
+        "II": "AJDKSIRUXBLHWTMCQGZNPYFVOE",
+        "III": "BDFHJLCPRTXVZNYEIWGAKMUSQO",
+        "IV": "ESOVPZJAYQUIRHXLNFTGKDCMWB",
+        "V": "VZBRGITYUPSDNHLXAWMJQOFECK"
+      };
+      const reflectorWirings = {
+        "A": "EJMZALYXVBWFCRQUONTSPIKHGD",
+        "B": "YRUHQSLDPXNGOKMIEBFZCWVJAT",
+        "C": "FVPJIAOYEDRZXWGCTKUQSBNMHL"
+      };
+      const r1 = new Rotor(rotorWirings[rotorNames[0]], "Q");
+      const r2 = new Rotor(rotorWirings[rotorNames[1]], "E");
+      const r3 = new Rotor(rotorWirings[rotorNames[2]], "V");
+      const reflector = new Reflector(reflectorWirings[config.reflector]);
+      const plugboard = new Plugboard(config.plugboard);
+      const machine = new Enigma(reflector, r1, r2, r3, plugboard, keyboard);
+      machine.setRings(config.rings.split('').map(c => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
+      machine.setKey(config.rotorStart);
+      return machine;
+    }
+    function enigmaObfuscate(message, config) {
+      const machine = createEnigmaMachineFromConfig(config);
+      let result = "";
+      for (let char of message.toUpperCase()) {
+        if (/[A-Z]/.test(char)) {
+          result += machine.encipher(char).letter;
+        } else {
+          result += char;
+        }
+      }
+      return result;
+    }
+    function enigmaDeobfuscate(message, config) {
+      return enigmaObfuscate(message, config);
+    }
+    
+    /* Chat UI Functions */
+    document.getElementById("sendPrompt").addEventListener("click", sendChatPrompt);
+    
+    function sendChatPrompt() {
+      const prompt = document.getElementById("chatPrompt").value;
+      if (!prompt) return;
+
+      // Collect current configuration
+      const config = {
+        rotors: document.getElementById("rotors").value,
+        rotorStart: document.getElementById("rotorStart").value,
+        rings: document.getElementById("rings").value,
+        plugboard: document.getElementById("plugboard").value,
+        reflector: document.getElementById("reflector").value
+      };
+
+      // Obfuscate the user's prompt using the current Enigma configuration
+      const obfPrompt = enigmaObfuscate(prompt);
+      document.getElementById("chatPrompt").value = "";
+      addMessage("user", obfPrompt, true);
+      // Send the obfuscated prompt to the extension host to call Gemini AI
+      vscode.postMessage({ command: "sendChatPrompt", prompt: obfPrompt, config: config });
+    }
+    function addMessage(type, message, addDeobfuscateButton = false, config = null) {
+      const chatContainer = document.getElementById("chatContainer");
+      const msgDiv = document.createElement("div");
+      msgDiv.classList.add("chatMessage", type);
+      msgDiv.textContent = message;
+      
+      if (addDeobfuscateButton) {
+        const deobBtn = document.createElement("button");
+        deobBtn.textContent = "Deobfuscate";
+        deobBtn.classList.add("deobfuscateBtn");
+        deobBtn.addEventListener("click", () => {
+          // Use the provided config for deobfuscation
+          const deobfMessage = enigmaDeobfuscate(message, config);
+          msgDiv.textContent = deobfMessage;
+        });
+        msgDiv.appendChild(document.createElement("br"));
+        msgDiv.appendChild(deobBtn);
+      }
+      
+      chatContainer.appendChild(msgDiv);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
   </script>
 </body>
-</html>
-    `;
+</html>`;
   }
 }
