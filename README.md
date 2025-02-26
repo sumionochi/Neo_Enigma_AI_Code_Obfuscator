@@ -36,6 +36,8 @@ NeoEnigma is a VSCode extension that implements homomorphic encryption principle
 2. **AI Interaction**
    - Encrypted code is sent to AI models
    - AI processes the encrypted content. This is a Proof of Concept (PoC) that can be used to obfuscate data sent to LLMs. It uses a technique known as Homomorphic Encryption to obfuscate data in a way that the LLM can still create valid completions while the data itself is gibberish. This works because an LLM is just a completion engine and does not need to understand the data it is completing. It just needs to be able to predict what comes next.
+  
+<img width="876" alt="image" src="https://github.com/user-attachments/assets/b73441b8-57a2-4f01-b905-ea5164bfb1f9" />
 
 3. **Decryption Process**
    - Responses are decrypted using the original configuration
