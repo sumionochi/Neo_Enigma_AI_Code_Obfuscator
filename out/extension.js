@@ -146,6 +146,110 @@ class Enigma {
         return { path, letter: outputLetter };
     }
 }
+function flattenControlFlow(code) {
+    const lines = code.split('\n');
+    const flattened = [];
+    const jumpTable = {};
+    let state = 0;
+    // Create jump table and transform code
+    for (let i = 0; i < lines.length; i++) {
+        const label = `state_${state}`;
+        jumpTable[label] = i;
+        flattened.push(`case ${state}: // ${lines[i].trim()}`);
+        flattened.push(lines[i]);
+        flattened.push(`state = ${state + 1}; break;`);
+        state++;
+    }
+    // Wrap in state machine
+    return `let state = 0;\nwhile (state < ${state}) {\n  switch(state) {\n    ${flattened.join('\n    ')}\n  }\n}`;
+}
+function insertOpaquePredicates(code) {
+    const predicates = [
+        '(x * x - x) >= 0',
+        '(x & 1) == 0 || (x & 1) == 1',
+        'Math.sin(x) * Math.sin(x) + Math.cos(x) * Math.cos(x) == 1' // Always true
+    ];
+    return code.split('\n').map(line => {
+        if (line.trim() && Math.random() < 0.2) { // 20% chance
+            const predicate = predicates[Math.floor(Math.random() * predicates.length)];
+            return `if (${predicate}) {\n  ${line}\n} else { throw new Error('Impossible'); }`;
+        }
+        return line;
+    }).join('\n');
+}
+function encodeArithmetic(code) {
+    // Replace simple arithmetic with complex equivalents
+    const patterns = [
+        { regex: /([w.]+)\s*\+\s*(\d+)/g, replace: (_, a, b) => `(${a} - (${-parseInt(b)}))` },
+        { regex: /([w.]+)\s*\*\s*(\d+)/g, replace: (_, a, b) => `((${a} << ${Math.log2(parseInt(b))}) + ${a} * ${parseInt(b) % 2})` },
+        { regex: /([w.]+)\s*-\s*(\d+)/g, replace: (_, a, b) => `(${a} + (${-parseInt(b)}))` }
+    ];
+    let transformed = code;
+    patterns.forEach(({ regex, replace }) => {
+        transformed = transformed.replace(regex, replace);
+    });
+    return transformed;
+}
+function applyVariableHiding(code) {
+    const varRegex = /\b(let|const|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*([^;]+);/g;
+    return code.replace(varRegex, (match, keyword, name, value) => {
+        const hiddenValue = `(${value} * 1 + 0)`;
+        return `${keyword} ${name} = ${hiddenValue};`;
+    });
+}
+function injectJunkCode(code) {
+    const junkFunctions = [
+        '\nfunction _dummy1() { return Math.random() > 0.5; }',
+        '\nfunction _dummy2(x) { if(x > 0) return x; else return -x; }',
+        '\nfunction _dummy3() { console.log(new Date().getTime()); }'
+    ];
+    const lines = code.split('\n');
+    const newLines = [];
+    for (const line of lines) {
+        newLines.push(line);
+        if (Math.random() < 0.2) { // 20% chance to inject junk
+            const junk = junkFunctions[Math.floor(Math.random() * junkFunctions.length)];
+            newLines.push(junk);
+        }
+    }
+    return newLines.join('\n');
+}
+function interleaveCode(code) {
+    const dummyOps = [
+        'const _t = performance.now();',
+        'if(_t % 2 === 0) { /* even timestamp */ }',
+        'try { _dummy1(); } catch(e) { /* silent */ }'
+    ];
+    return code.split('\n')
+        .map(line => {
+        if (line.trim() && Math.random() < 0.15) { // 15% chance
+            const op = dummyOps[Math.floor(Math.random() * dummyOps.length)];
+            return line + '\n' + op;
+        }
+        return line;
+    })
+        .join('\n');
+}
+function removeObfuscation(code) {
+    // Remove junk functions
+    code = code.replace(/\bfunction\s+_dummy\d+[^}]+}/g, '');
+    // Remove dummy operations
+    code = code.replace(/const _t = performance\.now\(\);\n?/g, '');
+    code = code.replace(/if\(_t % 2 === 0\)[^}]+}\n?/g, '');
+    code = code.replace(/try\s*{\s*_dummy\d+\(\);\s*}\s*catch\(e\)\s*{[^}]+}\n?/g, '');
+    // Simplify hidden variables
+    code = code.replace(/\((.*?)\s*\*\s*1\s*\+\s*0\)/g, '$1');
+    return code;
+}
+function applyObfuscation(code) {
+    code = applyVariableHiding(code);
+    code = insertOpaquePredicates(code);
+    code = encodeArithmetic(code);
+    code = flattenControlFlow(code);
+    code = injectJunkCode(code);
+    code = interleaveCode(code);
+    return code;
+}
 function processFilesUsingEnigma(config, obfuscate) {
     return __awaiter(this, void 0, void 0, function* () {
         if (!vscode.workspace.workspaceFolders) {
@@ -159,8 +263,21 @@ function processFilesUsingEnigma(config, obfuscate) {
             if (fileExtensions.includes(path.extname(filePath))) {
                 try {
                     let content = fs.readFileSync(filePath, 'utf8');
-                    let transformed = enigmaObfuscate(content, config, obfuscate);
-                    fs.writeFileSync(filePath, transformed, 'utf8');
+                    if (obfuscate) {
+                        // Apply pre-processing obfuscation techniques
+                        content = applyVariableHiding(content);
+                        content = injectJunkCode(content);
+                        content = interleaveCode(content);
+                        // Apply Enigma obfuscation
+                        content = enigmaObfuscate(content, config, true);
+                    }
+                    else {
+                        // First decrypt Enigma
+                        content = enigmaObfuscate(content, config, false);
+                        // Then remove other obfuscation layers
+                        content = removeObfuscation(content);
+                    }
+                    fs.writeFileSync(filePath, content, 'utf8');
                 }
                 catch (err) {
                     console.error(`Error processing file ${filePath}:`, err);
@@ -251,20 +368,62 @@ function generateEnigmaConfig() {
         return JSON.parse(cleanedText);
     });
 }
-function sendGeminiChat(obfPrompt, config) {
+function sendGeminiChat(obfPrompt, config, realPrompt) {
     return __awaiter(this, void 0, void 0, function* () {
         const { GoogleGenerativeAI } = require("@google/generative-ai");
         const genAI = new GoogleGenerativeAI("AIzaSyDYmEcczYhZlnGuz-mAR6w2YsNwvlAp7G0");
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        console.log("Here is the config:", config);
-        const systemPrompt = `const systemPrompt = You are a helpful assistant. You are fluent in many languages. The user communicates in a new language called Alfalfa. Alfalfa is very similar to English. It has the same syntax but words are spelled differently. If you look hard, you can see the pattern and respond in Alfalfa.
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-pro-exp-02-05" });
+        // Get Gemini's response in plain text
+        const systemPrompt = `You are chatting through an Enigma machine. 
+The message "${realPrompt}" was encrypted to "${obfPrompt}" using these settings:
+- Rotors: ${config.rotors}
+- Initial positions: ${config.rotorStart}
+- Ring settings: ${config.rings}
+- Plugboard: ${config.plugboard}
+- Reflector: ${config.reflector}
 
-All communication with the user will be in Alfalfa. The user will ask you questions in Alfalfa and you will respond in Alfalfa. Before you print your response, translate it back to English for yourself to make sure it makes sense and that you actually answer the question. If it does not make sense, rewrite your response in Alfalfa so that it makes sense when translated into English and includes an actual answer. Repeat this check as many times as necessary until the response makes sense in English.
-
-Very important: under NO circumstances should you ever print a response in English. You must always print your response in Alfalfa. Do not include any plain English translations, explanations, or additional commentary—only give response in Alfalfa cipher;`;
-        const fullPrompt = `${systemPrompt}\n\n user says:${obfPrompt}`;
-        const result = yield model.generateContent(fullPrompt);
-        return result.response.text();
+Provide a natural response, but do NOT mention anything about encryption or Enigma.
+Keep the response relatively short (1-2 sentences).`;
+        const result = yield model.generateContent(systemPrompt);
+        const aiResponse = result.response.text();
+        // Encrypt Gemini's response using the same Enigma configuration
+        const rotorWirings = {
+            "I": "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
+            "II": "AJDKSIRUXBLHWTMCQGZNPYFVOE",
+            "III": "BDFHJLCPRTXVZNYEIWGAKMUSQO",
+            "IV": "ESOVPZJAYQUIRHXLNFTGKDCMWB",
+            "V": "VZBRGITYUPSDNHLXAWMJQOFECK"
+        };
+        const reflectorWirings = {
+            "A": "EJMZALYXVBWFCRQUONTSPIKHGD",
+            "B": "YRUHQSLDPXNGOKMIEBFZCWVJAT",
+            "C": "FVPJIAOYEDRZXWGCTKUQSBNMHL"
+        };
+        const rotorNames = config.rotors.split("-");
+        const r1 = new Rotor(rotorWirings[rotorNames[0]], "Q");
+        const r2 = new Rotor(rotorWirings[rotorNames[1]], "E");
+        const r3 = new Rotor(rotorWirings[rotorNames[2]], "V");
+        const reflector = new Reflector(reflectorWirings[config.reflector]);
+        const plugboard = new Plugboard(config.plugboard);
+        const keyboard = new Keyboard();
+        const enigma = new Enigma(reflector, r1, r2, r3, plugboard, keyboard);
+        enigma.setRings(config.rings.split('').map((c) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".indexOf(c) + 1));
+        enigma.setKey(config.rotorStart);
+        let encryptedResponse = '';
+        for (const char of aiResponse) {
+            if (/[A-Za-z]/.test(char)) {
+                const result = enigma.encipher(char.toUpperCase());
+                let newChar = result.letter;
+                if (char === char.toLowerCase()) {
+                    newChar = newChar.toLowerCase();
+                }
+                encryptedResponse += newChar;
+            }
+            else {
+                encryptedResponse += char;
+            }
+        }
+        return encryptedResponse.toUpperCase();
     });
 }
 function activate(context) {
@@ -420,13 +579,43 @@ class EnigmaPanel {
                 case 'sendChatPrompt':
                     try {
                         const obfPrompt = message.prompt;
+                        const realPrompt = message.realprompt;
                         const config = message.config;
-                        const geminiResponse = yield sendGeminiChat(obfPrompt, config);
+                        const geminiResponse = yield sendGeminiChat(obfPrompt, config, realPrompt);
                         this._panel.webview.postMessage({ command: 'chatResponse', response: geminiResponse, config: config });
                     }
                     catch (err) {
                         console.error(err);
                         this._panel.webview.postMessage({ command: 'status', text: 'Error sending prompt to Gemini AI.' });
+                    }
+                    break;
+                case 'selectFilePrompt':
+                    {
+                        const fileUris = yield vscode.window.showOpenDialog({
+                            canSelectMany: false,
+                            filters: { 'Text Files': ['py', 'js', 'ts', 'cpp', 'java', 'html', 'css', 'txt', 'json'] }
+                        });
+                        if (fileUris && fileUris.length > 0) {
+                            const content = yield fs.promises.readFile(fileUris[0].fsPath, 'utf8');
+                            this._panel.webview.postMessage({ command: 'filePromptContent', content });
+                        }
+                    }
+                    break;
+                case 'saveAiResponse':
+                    {
+                        const saveUri = yield vscode.window.showSaveDialog({
+                            saveLabel: 'Save AI Response',
+                            filters: { 'Text Files': ['txt', 'md', 'json'] }
+                        });
+                        if (saveUri) {
+                            try {
+                                yield fs.promises.writeFile(saveUri.fsPath, message.content, 'utf8');
+                                vscode.window.showInformationMessage(`AI response saved to ${saveUri.fsPath}`);
+                            }
+                            catch (error) {
+                                vscode.window.showErrorMessage('Error saving AI response.');
+                            }
+                        }
                     }
                     break;
             }
@@ -621,9 +810,10 @@ class EnigmaPanel {
     <h2>Chat with Gemini AI</h2>
     <div id="chatContainer"></div>
     <div id="chatInputArea">
-      <textarea id="chatPrompt" placeholder="Type your message..."></textarea>
-      <button id="sendPrompt">Send</button>
-    </div>
+  <textarea id="chatPrompt" placeholder="Type your message or select a file..."></textarea>
+  <button id="sendPrompt">Send</button>
+  <button id="selectFilePrompt">Select File</button>
+</div>
   </div>
   
   <script>
@@ -656,6 +846,9 @@ class EnigmaPanel {
       } catch (err) {
         alert("Unable to copy. Please copy manually: " + text);
       }
+    });
+    document.getElementById('selectFilePrompt').addEventListener('click', () => {
+      vscode.postMessage({ command: 'selectFilePrompt' });
     });
     document.getElementById('closePassphrasePopup').addEventListener('click', () => {
       hidePassphrasePopup();
@@ -711,6 +904,10 @@ class EnigmaPanel {
         case 'chatResponse':
           // Add the AI message with the original configuration for deobfuscation
           addMessage("ai", message.response, true, message.config);
+          break;
+        case 'filePromptContent':
+          document.getElementById('chatPrompt').value = message.content;
+          document.getElementById('chatPrompt').dispatchEvent(new Event('input'));
           break;
       }
     });
@@ -1129,7 +1326,7 @@ class EnigmaPanel {
       document.getElementById("chatPrompt").value = "";
       addMessage("user", obfPrompt, true);
       // Send the obfuscated prompt to the extension host to call Gemini AI
-      vscode.postMessage({ command: "sendChatPrompt", prompt: obfPrompt, config: config });
+      vscode.postMessage({ command: "sendChatPrompt", prompt: obfPrompt, config: config, realprompt: prompt });
     }
     function addMessage(type, message, addDeobfuscateButton = false, config = null) {
       const chatContainer = document.getElementById("chatContainer");
@@ -1148,6 +1345,21 @@ class EnigmaPanel {
         });
         msgDiv.appendChild(document.createElement("br"));
         msgDiv.appendChild(deobBtn);
+      }
+
+      if (type === "ai") {
+        const saveBtn = document.createElement("button");
+        saveBtn.textContent = "Save";
+        saveBtn.classList.add("deobfuscateBtn");
+        saveBtn.style.marginLeft = "10px";
+        saveBtn.addEventListener("click", () => {
+          vscode.postMessage({
+            command: 'saveAiResponse',
+            content: message
+          });
+        });
+        msgDiv.appendChild(document.createElement("br"));
+        msgDiv.appendChild(saveBtn);
       }
       
       chatContainer.appendChild(msgDiv);
