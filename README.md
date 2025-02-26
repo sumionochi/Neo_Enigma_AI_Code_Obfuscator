@@ -5,6 +5,9 @@ NeoEnigma is a VSCode extension that implements homomorphic encryption principle
 
 <img width="1138" alt="image" src="https://github.com/user-attachments/assets/0ba8be4b-744c-4bbc-8fdd-6d367940fe80" />
 
+<img width="1137" alt="image" src="https://github.com/user-attachments/assets/0eca0702-77f9-4c80-b69e-f722d8bbda64" />
+
+
 ## Features
 
 ### 🔐 Secure Code Processing
