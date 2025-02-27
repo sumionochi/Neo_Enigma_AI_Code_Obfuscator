@@ -1,6 +1,7 @@
 import * as tf from '@tensorflow/tfjs-node';
 import * as parser from '@typescript-eslint/parser';
 import { AST_NODE_TYPES } from '@typescript-eslint/types';
+import { ParserOptions } from '@typescript-eslint/parser';
 
 export class CodeAnalyzer {
   private model: tf.LayersModel;
@@ -121,7 +122,7 @@ export class CodeAnalyzer {
     await this.model.save(`file://${path}`);
   }
 
-  public async trainModel(trainingData: Array<{ code: string; metrics: CodeMetrics }>): Promise<void> {
+  public async trainModel(trainingData: Array<{ code: string; metrics: CodeMetrics; fileType: string}>): Promise<void> {
     if (!this.model) {
       throw new Error('Model not initialized');
     }
@@ -131,7 +132,7 @@ export class CodeAnalyzer {
 
     // Process training data
     for (const sample of trainingData) {
-      const tokens = this.tokenizeCode(sample.code);
+      const tokens = this.tokenizeCode(sample.code, sample.fileType);
       const paddedTokens = this.padSequence(tokens, 512);
       xs.push(paddedTokens);
       ys.push([
@@ -163,9 +164,9 @@ export class CodeAnalyzer {
     outputTensor.dispose();
   }
 
-  public async analyzeCode(code: string): Promise<CodeAnalysisResult> {
+  public async analyzeCode(code: string, fileType: string): Promise<CodeAnalysisResult> {
     try {
-      const tokens = this.tokenizeCode(code);
+      const tokens = this.tokenizeCode(code, fileType);
       const paddedTokens = this.padSequence(tokens, 512);
       
       const validTokens = paddedTokens.map(t => Math.max(0, Math.min(t, 4999))); // Match reduced vocabulary size
@@ -231,18 +232,63 @@ export class CodeAnalyzer {
     return tokens;
   }
 
-  private tokenizeCode(code: string): number[] {
+  private tokenizeCode(code: string, fileType: string): number[] {
     try {
-      const ast = parser.parse(code, {
+      const parserOptions: ParserOptions = {
         sourceType: 'module',
-        ecmaFeatures: { jsx: true }
-      });
+        ecmaFeatures: {
+          jsx: fileType === '.tsx' || fileType === '.jsx'
+        },
+        ecmaVersion: 2020,
+        project: undefined,
+        tsconfigRootDir: undefined,  // Changed from null to undefined
+        extraFileExtensions: ['.vue', '.php', '.rb', '.py'],
+        parser: this.getParserForFileType(fileType)
+      };
+  
+      // Handle non-JS/TS files differently
+      if (!['.js', '.ts', '.tsx', '.jsx'].includes(fileType)) {
+        return this.simpleTokenize(code);
+      }
+  
+      const ast = parser.parse(code, parserOptions);
       const tokens = this.astToTokens(ast);
-      return tokens.map((token: number) => token % 5000); // Match reduced vocabulary size
+      return tokens.map((token: number) => token % 5000);
     } catch (error) {
-      console.warn('Parsing error:', error);
-      return new Array(512).fill(0);
+      console.warn(`Parsing error for ${fileType} file:`, error);
+      return this.simpleTokenize(code);
     }
+  }
+
+  private getParserForFileType(fileType: string): string | undefined {
+    switch (fileType) {
+      case '.js':
+      case '.jsx':
+        return '@babel/eslint-parser';
+      case '.ts':
+      case '.tsx':
+        return '@typescript-eslint/parser';
+      default:
+        return undefined;
+    }
+  }
+
+  private simpleTokenize(code: string): number[] {
+    // Fallback tokenization for non-JS/TS files
+    const tokens: number[] = [];
+    const words = code.split(/[\s\n\r\t{}()[\],;=+\-*/<>!&|^%]+/);
+    
+    for (const word of words) {
+      if (word) {
+        // Create a simple hash of the word
+        const hash = word.split('').reduce((acc, char) => {
+          return (acc * 31 + char.charCodeAt(0)) >>> 0;
+        }, 0);
+        tokens.push(hash % 5000);
+      }
+    }
+    
+    return tokens.slice(0, 512); // Keep max length consistent
   }
 
   private padSequence(sequence: number[], maxLength: number): number[] {

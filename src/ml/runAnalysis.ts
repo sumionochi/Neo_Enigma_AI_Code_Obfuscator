@@ -1,6 +1,7 @@
 import { CodeAnalyzer } from './codeAnalyzer';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as readline from 'readline';
 
 async function main() {
   try {
@@ -9,15 +10,32 @@ async function main() {
     const analyzer = new CodeAnalyzer();
     await analyzer.initialize();
 
-    // Read test code
-    const testCode = fs.readFileSync(
-      path.join(__dirname, '../../test/samples/testCode.ts'),
-      'utf8'
-    );
+    // Setup readline interface
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    // Get file path from user
+    const filePath = await new Promise<string>((resolve) => {
+      rl.question('Enter the path to the file you want to analyze: ', (answer) => {
+        resolve(answer);
+      });
+    });
+
+    if (!fs.existsSync(filePath)) {
+      console.error('File not found:', filePath);
+      rl.close();
+      return;
+    }
+
+    // Read selected file
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    const fileType = path.extname(filePath);
 
     // Run analysis
-    console.log('Analyzing code...');
-    const analysis = await analyzer.analyzeCode(testCode);
+    console.log(`\nAnalyzing ${path.basename(filePath)}...`);
+    const analysis = await analyzer.analyzeCode(fileContent, fileType);
 
     // Display results
     console.log('\nAnalysis Results:');
@@ -35,6 +53,7 @@ async function main() {
       console.log(`   - Intensity: ${(strategy.intensity * 100).toFixed(2)}%`);
     });
 
+    rl.close();
   } catch (error) {
     console.error('Analysis failed:', error);
   }

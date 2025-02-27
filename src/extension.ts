@@ -306,13 +306,14 @@ async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
 
   for (const file of files) {
     const filePath = file.fsPath;
-    if (fileExtensions.includes(path.extname(filePath))) {
+    const fileExt = path.extname(filePath);
+    if (fileExtensions.includes(fileExt)) {
       try {
         let content = fs.readFileSync(filePath, 'utf8');
         
         if (obfuscate) {
           // Apply pre-processing obfuscation techniques
-          const analysis = await codeAnalyzer.analyzeCode(content);
+          const analysis = await codeAnalyzer.analyzeCode(content, fileExt);
           content = applyObfuscationStrategies(content, analysis.suggestedStrategies);
           content = applyVariableHiding(content);
           content = injectJunkCode(content);
