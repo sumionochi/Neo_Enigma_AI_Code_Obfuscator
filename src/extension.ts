@@ -2,8 +2,17 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { CodeAnalyzer } from './ml/codeAnalyzer';
 
 let GoogleGenerativeAI: any;
+let codeAnalyzer: CodeAnalyzer;
+
+interface ObfuscationStrategy {
+  type: 'structural' | 'encryption' | 'optimization';
+  technique: string;
+  intensity: number;
+}
+
 try {
   GoogleGenerativeAI = require('@google/generative-ai').GoogleGenerativeAI;
 } catch (err) {
@@ -159,7 +168,6 @@ function flattenControlFlow(code: string): string {
     state++;
   }
 
-  // Wrap in state machine
   return `let state = 0;\nwhile (state < ${state}) {\n  switch(state) {\n    ${flattened.join('\n    ')}\n  }\n}`;
 }
 
@@ -267,7 +275,28 @@ function applyObfuscation(code: string): string {
   return code;
 }
 
+function applyObfuscationStrategies(code: string, strategies: ObfuscationStrategy[]): string {
+  for (const strategy of strategies) {
+    switch (strategy.technique) {
+      case 'controlFlowFlattening':
+        code = flattenControlFlow(code);
+        break;
+      case 'variableEncryption':
+        code = applyVariableHiding(code);
+        break;
+      case 'deadCodeInjection':
+        code = injectJunkCode(code);
+        break;
+    }
+  }
+  return code;
+}
+
 async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
+  if (!codeAnalyzer) {
+    codeAnalyzer = new CodeAnalyzer();
+    await codeAnalyzer.initialize();
+  }
   if (!vscode.workspace.workspaceFolders) {
     vscode.window.showErrorMessage('No workspace folder open');
     return;
@@ -283,6 +312,8 @@ async function processFilesUsingEnigma(config: any, obfuscate: boolean) {
         
         if (obfuscate) {
           // Apply pre-processing obfuscation techniques
+          const analysis = await codeAnalyzer.analyzeCode(content);
+          content = applyObfuscationStrategies(content, analysis.suggestedStrategies);
           content = applyVariableHiding(content);
           content = injectJunkCode(content);
           content = interleaveCode(content);

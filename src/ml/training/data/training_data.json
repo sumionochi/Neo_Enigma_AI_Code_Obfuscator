@@ -1,0 +1,20 @@
+[
+  {
+    "code": "\n        function sensitiveData() {\n          const password = \"hardcoded123\";\n          return password;\n        }\n      ",
+    "metrics": {
+      "complexity": 0.3,
+      "securityRisk": 0.9,
+      "performanceImpact": 0.2,
+      "obfuscationLevel": 0.8
+    }
+  },
+  {
+    "code": "\n        async function complexOperation(data) {\n          let result = 0;\n          for(let i = 0; i < data.length; i++) {\n            if(data[i] > 0) {\n              result += await processItem(data[i]);\n            }\n          }\n          return result;\n        }\n      ",
+    "metrics": {
+      "complexity": 0.8,
+      "securityRisk": 0.4,
+      "performanceImpact": 0.7,
+      "obfuscationLevel": 0.6
+    }
+  }
+]
