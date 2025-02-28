@@ -11,14 +11,18 @@ A VS Code extension that implements homomorphic encryption technique through Eni
 ## Features
 
 - **Homomorphic Encryption**: 
-  - Enables LLMs to process encrypted data without decryption
+  - Enables LLMs to operate on encrypted data without decryption
   - Maintains data utility while ensuring privacy
   - Supports secure AI completions on obfuscated code
+
+<img width="889" alt="image" src="https://github.com/user-attachments/assets/554fe72c-cabf-47b6-9b68-9244a501e3af" />
 
 - **Enigma-based Obfuscation**: 
   - Implements the classic Enigma machine algorithm
   - Creates unique, reversible code transformations
   - Adds historical cryptographic strength
+ 
+<img width="990" alt="image" src="https://github.com/user-attachments/assets/04d6c9e8-7be2-4d7f-ad33-9447297de191" />
 
 - **Advanced Obfuscation Suite**:
   - Variable hiding and renaming
@@ -41,6 +45,7 @@ A VS Code extension that implements homomorphic encryption technique through Eni
   - Uses TensorFlow.js for intelligent code analysis
   - Automatic obfuscation strategy selection
   - Security risk assessment
+<img width="858" alt="Screenshot 2025-02-28 at 7 04 19 AM" src="https://github.com/user-attachments/assets/414b373b-e3c2-45bb-adec-c12b60fffa98" />
 
 - **Secure Configuration Management**:
   - Import/Export encrypted configurations
@@ -71,7 +76,7 @@ A VS Code extension that implements homomorphic encryption technique through Eni
    - Reflector Type (A, B, or C)
 3. Click "Obfuscate Files" to process your code
 
-<img width="1129" alt="Screenshot 2025-02-28 at 7 04 57 AM" src="https://github.com/user-attachments/assets/81f16a8d-6bbc-4171-a939-5216de86990f" />
+<img width="1129" alt="Screenshot 2025-02-28 at 7 04 57 AM" src="https://github.com/user-attachments/assets/81f16a8d-6bbc-4171-a939-5216de86990f" />
 
 ### Auto Configuration
 
@@ -82,41 +87,31 @@ A VS Code extension that implements homomorphic encryption technique through Eni
    - Save encrypted configuration
    - Provide a secure passphrase
 
-#### Simulation Tab
+### Simulation Tab
 1. Configure and initialize your Enigma settings
 2. Input text in the left text area to see real-time obfuscation in the right area
 3. Interactive canvas displays live Enigma component states
 4. Use file obfuscation buttons to process workspace files with configuration-based shifts
 
-<img width="1131" alt="Screenshot 2025-02-28 at 7 05 23 AM" src="https://github.com/user-attachments/assets/6f7d31e6-97c0-4dcb-a3cb-36121d672d1f" />
+<img width="1131" alt="Screenshot 2025-02-28 at 7 05 23 AM" src="https://github.com/user-attachments/assets/6f7d31e6-97c0-4dcb-a3cb-36121d672d1f" />
 
-#### Chat Tab (Secure LLM Integration)
-1. **Homomorphic-Style Encryption**:
-   - Implements privacy-preserving LLM interactions
-   - Enables LLMs to process obfuscated data without compromising meaning
-   - Maintains completion accuracy while protecting sensitive information
+### Chat Tab (Secure LLM Integration)
 
-2. **Technical Implementation**:
-   - Utilizes reversible homomorphic transformation on input
-   - Preserves semantic structure while obfuscating content
-   - Enables LLM pattern recognition on encrypted data
-   - Supports bidirectional obfuscation/deobfuscation
-
-3. **Features**:
+1. **Features**:
    - Real-time prompt obfuscation
    - Automatic response deobfuscation
    - Secure file attachment support
    - Context-aware encryption
 
-4. **Usage Flow**:
+2. **Usage Flow**:
    - Enter prompt in the chat input
    - System automatically applies homomorphic encryption
    - LLM processes encrypted data maintaining utility
    - Use "Deobfuscate Last Response" to reveal plain text
    - Attach obfuscated files for context-aware completions
 
-<img width="1127" alt="Screenshot 2025-02-28 at 7 06 28 AM" src="https://github.com/user-attachments/assets/07316e00-155f-4e97-950a-06c92d526814" />
-<img width="1124" alt="Screenshot 2025-02-28 at 7 06 42 AM" src="https://github.com/user-attachments/assets/54534159-837f-4991-894b-5c7dea82b905" />
+<img width="1127" alt="Screenshot 2025-02-28 at 7 06 28 AM" src="https://github.com/user-attachments/assets/07316e00-155f-4e97-950a-06c92d526814" />
+<img width="1124" alt="Screenshot 2025-02-28 at 7 06 42 AM" src="https://github.com/user-attachments/assets/54534159-837f-4991-894b-5c7dea82b905" />
 
 ## Supported File Types
 
@@ -128,45 +123,6 @@ A VS Code extension that implements homomorphic encryption technique through Eni
 - C (.c)
 - HTML (.html)
 - CSS (.css)
-
-## Configuration
-
-### Enigma Settings
-
-- **Rotors**: Choose from I, II, III, IV, V
-- **Reflectors**: A, B, C
-- **Plugboard**: Custom letter pairs for additional substitution
-
-### Machine Learning Features
-
-The extension uses a neural network to:
-- Analyze code complexity
-- Assess security risks
-- Evaluate performance impact
-- Suggest optimal obfuscation strategies
-
-## Security Features
-
-### Homomorphic Encryption
-- Enables computation on encrypted data
-- Preserves data privacy during LLM processing
-- Supports secure AI model interaction
-
-### Configuration Security
-- AES-256-GCM encrypted storage
-- Secure key derivation (PBKDF2)
-- Protected configuration export/import
-
-### Code Protection
-- Multiple transformation layers
-- Reversible obfuscation techniques
-- Metadata scrubbing
-
-### Enterprise Features
-- Access control integration
-- Audit logging
-- Compliance reporting
-- AI-driven risk assessment
 
 ## Development
 
@@ -196,20 +152,6 @@ The extension uses a neural network to:
   - Pattern Detector: Identifies security-critical code patterns
   - Risk Analyzer: Evaluates potential vulnerabilities
 
-- **Training Process**:
-  - Dataset: 100,000+ code samples across multiple languages
-  - Validation Split: 20% for model evaluation
-  - Early Stopping: Patience of 5 epochs
-  - Batch Size: 32 samples
-  - Training Duration: 100 epochs or early stopping
-
-- **Integration Features**:
-  - Real-time code analysis during editing
-  - Automatic vulnerability detection
-  - Obfuscation strategy recommendation
-  - Performance impact prediction
-  - Security risk scoring
-
 #### Enigma Implementation
 
 - **Classes**:
@@ -225,20 +167,6 @@ The extension uses a neural network to:
   - Dead Code Injection: Inserts valid but unused functions and operations
   - Code Interleaving: Adds dummy operations between actual code lines
   - Arithmetic Encoding: Replaces simple operations with complex equivalents
-
-#### Machine Learning Architecture
-
-- **Model Structure**:
-  - Embedding Layer: 5000 input dimensions, 64 output dimensions
-  - LSTM Layers: 32 units (with sequences) + 16 units
-  - Dense Layers: 8 units (ReLU) + 4 units (Sigmoid)
-  - Optimizer: Adam (learning rate: 0.001)
-
-- **Code Analysis Metrics**:
-  - Complexity: Based on control structures, nesting, and operators
-  - Security Risk: Detects dangerous patterns and sensitive operations
-  - Performance Impact: Evaluates loops, async operations, and code size
-  - Obfuscation Level: Weighted combination of other metrics
 
 ### Setup
 
@@ -259,32 +187,22 @@ npm run compile
 ```bash
 npx ts-node src/ml/training/generateData.ts
 ```
-- Processes multiple file types (.js, .ts, .php, .rb, .c, .cpp, etc.)
-- Calculates code metrics using pattern matching
-- Generates JSON training data with code samples and metrics
 
-<img width="812" alt="Screenshot 2025-02-28 at 7 00 03 AM" src="https://github.com/user-attachments/assets/2fa4e232-0a8c-4354-ace0-6f77e271273c" />
+<img width="812" alt="Screenshot 2025-02-28 at 7 00 03 AM" src="https://github.com/user-attachments/assets/2fa4e232-0a8c-4354-ace0-6f77e271273c" />
 
 2. Train the neural network model:
 ```bash
 npx ts-node src/ml/training/trainModel.ts
 ```
-- Tokenizes and pads code sequences
-- Trains embedding-LSTM model for 100 epochs
-- Saves model weights for code analysis
 
-<img width="1039" alt="Screenshot 2025-02-28 at 7 01 50 AM" src="https://github.com/user-attachments/assets/d77097e7-a224-48a3-ba90-4bcd91a1357e" />
+<img width="1039" alt="Screenshot 2025-02-28 at 7 01 50 AM" src="https://github.com/user-attachments/assets/d77097e7-a224-48a3-ba90-4bcd91a1357e" />
 
 3. Run code analysis:
 ```bash
 npx ts-node src/ml/runAnalysis.ts
 ```
-- Loads pretrained model
-- Analyzes code complexity and security risks
-- Suggests optimal obfuscation strategies
-- Provides detailed metrics and recommendations
 
-<img width="858" alt="Screenshot 2025-02-28 at 7 04 19 AM" src="https://github.com/user-attachments/assets/414b373b-e3c2-45bb-adec-c12b60fffa98" />
+<img width="858" alt="Screenshot 2025-02-28 at 7 04 19 AM" src="https://github.com/user-attachments/assets/414b373b-e3c2-45bb-adec-c12b60fffa98" />
 
 ### Running the Extension
 
@@ -294,4 +212,3 @@ npx ts-node src/ml/runAnalysis.ts
    - Press Ctrl+Shift+P (Cmd+Shift+P on macOS)
    - Search for "Open Enigma Obfuscator"
    - Select it to start using the extension
-
