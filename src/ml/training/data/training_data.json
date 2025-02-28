@@ -1118,5 +1118,15 @@
       "obfuscationLevel": 0.46169666666666676
     },
     "fileType": ".ts"
+  },
+  {
+    "code": "function processUserData(userData: any) {\n  // Potentially dangerous eval usage\n  eval(userData.code);\n  \n  // SQL query with potential injection\n  const query = `SELECT * FROM users WHERE id = ${userData.id}`;\n  \n  // Complex nested loops\n  for (let i = 0; i < userData.items.length; i++) {\n    for (let j = 0; j < userData.items[i].length; j++) {\n      for (let k = 0; k < 1000; k++) {\n        processItem(userData.items[i][j], k);\n      }\n    }\n  }\n\n  // Sensitive data handling\n  const userPassword = userData.password;\n  const apiKey = \"secret_key_123\";\n  \n  // Memory intensive operations\n  const largeArray = new Array(1000000).fill(0);\n  largeArray.forEach(item => {\n    heavyComputation(item);\n  });\n\n  return {\n    success: true,\n    token: apiKey\n  };\n}\n\nfunction processItem(item: any, index: number) {\n  // Some processing\n  return item * index;\n}\n\nfunction heavyComputation(value: number) {\n  for (let i = 0; i < value; i++) {\n    Math.pow(i, 2);\n  }\n}\n\nexport { processUserData };",
+    "metrics": {
+      "complexity": 0.7333333333333334,
+      "securityRisk": 0.8999999999999999,
+      "performanceImpact": 1,
+      "obfuscationLevel": 0.8533333333333333
+    },
+    "fileType": ".ts"
   }
 ]
